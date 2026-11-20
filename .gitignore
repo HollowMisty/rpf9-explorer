@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+dist/
+*.exe
+*.dll
+*.obj
+*.pdb
+*.zip
