@@ -1,4 +1,4 @@
-# rpf9-explorer 1.0.1
+# rpf9-explorer 1.1
 
 A Windows desktop viewer for RPF archives and game assets. Open multiple archives or a folder, search textures, preview models and media, export files, and save replacement projects.
 
@@ -50,6 +50,8 @@ Expand an archive and its folders under **Sources and textures**, then expand a 
 ![Individual images listed inside an expanded texture dictionary](docs/screenshots/texture-dictionary.png)
 
 The texture selector above the preview switches between images in the same dictionary. Arrays, cube maps, and volumes also have a slice or face selector where supported. **Export DDS** saves the texture in DDS format, including the available mip levels.
+
+Supported TTPF layouts include compact 2D mip chains, 2D arrays, streaming cube maps, and single-mip 3D volumes. The preview can select individual slices or faces, and DDS exports preserve the supported texture shape. R16G16B16A16_UNORM previews retain the original 16-bit channels in DDS exports. Unvalidated storage profiles, unsupported formats, and BCPack-dependent mip levels remain unavailable. These additional layouts are read-only; they do not add native replacement support.
 
 Streaming textures may have generated names based on native keys. These are not claimed to be their original filenames.
 
@@ -121,9 +123,9 @@ The publish script creates `dist/rpf9-explorer.exe` as a self-contained Windows 
 
 Bink requires a separately installed licensed Unreal Bink SDK. Opus requires libopus headers and a library. Those external SDKs are not included. Build the helpers before running `build.ps1` to copy them into the published `Tools` folder. For XMA2 audio, put a compatible `ffmpeg.exe` in `Tools` before publishing.
 
-Model and texture browsing do not need the media helpers.
+The Windows 1.1 build uses libopus 1.6.1. To use your own static libopus build, pass `-OpusRoot` (the folder containing `include/opus.h`) and `-OpusLibrary` (the x64 `/MT` static library) to `Tools/Build-OpusPreview.ps1`. Compiler and Windows SDK paths can also be supplied as parameters.
 
-To smoke-test audio timing with generated AWC banks, run `dotnet run --project Tests/OpusPreviewSmoke -c Release -- Tools/opus-preview.exe` after building the Opus helper.
+Model and texture browsing do not need the media helpers.
 
 ## Source layout
 

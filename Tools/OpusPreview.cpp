@@ -153,7 +153,6 @@ int wmain(int argc,wchar_t** argv) {
         if (!maxSeconds || maxSeconds>120) throw std::runtime_error("Preview limit must be 1 to 120 seconds.");
         Source source(argv[1],number(argv[2]),number(argv[3]));
         Sound sound=inspect(source,number(argv[4]));
-        // AWC's 32 kHz tag controls playback of the existing decoded frames. Opus packet math stays at 48 kHz.
         const int outputRate = sound.codec == 0x0B && sound.rate != 32000 ? OpusDecodeRate : sound.rate;
         const uint64_t maxFrames = maxSeconds * outputRate;
         int error=0;

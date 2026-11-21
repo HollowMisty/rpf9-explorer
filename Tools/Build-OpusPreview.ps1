@@ -1,10 +1,14 @@
+param(
+    [string]$OpusRoot = 'C:\Program Files\Epic Games\UE_5.7\Engine\Source\ThirdParty\libOpus\opus-1.3.1-12',
+    [string]$OpusLibrary = '',
+    [string]$CompilerRoot = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717',
+    [string]$SdkRoot = 'C:\Program Files (x86)\Windows Kits\10',
+    [string]$SdkVersion = '10.0.26100.0'
+)
 $ErrorActionPreference = 'Stop'
-$compilerRoot = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717'
-$sdkRoot = 'C:\Program Files (x86)\Windows Kits\10'
-$sdkVersion = '10.0.26100.0'
-$opusRoot = 'C:\Program Files\Epic Games\UE_5.7\Engine\Source\ThirdParty\libOpus\opus-1.3.1-12'
-$opusLib = Join-Path $opusRoot 'bin\Win64\Release\opus.lib'
-if (!(Test-Path -LiteralPath $opusLib)) { throw 'The installed trusted libopus SDK is required.' }
+if ([string]::IsNullOrWhiteSpace($OpusLibrary)) { $OpusLibrary = Join-Path $OpusRoot 'bin\Win64\Release\opus.lib' }
+$opusLib = [IO.Path]::GetFullPath($OpusLibrary)
+if (!(Test-Path -LiteralPath $opusLib) -or !(Test-Path -LiteralPath (Join-Path $OpusRoot 'include\opus.h'))) { throw 'Supply -OpusRoot with libopus headers and -OpusLibrary with a compatible x64 static library built using /MT.' }
 $env:INCLUDE = (Join-Path $opusRoot 'include') + ';' + (Join-Path $compilerRoot 'include') + ';' + (Join-Path $sdkRoot "Include\$sdkVersion\ucrt") + ';' + (Join-Path $sdkRoot "Include\$sdkVersion\um") + ';' + (Join-Path $sdkRoot "Include\$sdkVersion\shared")
 $env:LIB = (Join-Path $compilerRoot 'lib\x64') + ';' + (Join-Path $sdkRoot "Lib\$sdkVersion\ucrt\x64") + ';' + (Join-Path $sdkRoot "Lib\$sdkVersion\um\x64")
 $env:PATH = (Join-Path $compilerRoot 'bin\Hostx64\x64') + ';' + $env:PATH

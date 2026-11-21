@@ -12,7 +12,6 @@ public sealed record AwcStreamInfo(int Index, uint Id, int SampleRate, long Samp
     public int Channels { get; init; }
     public long DeclaredInterleavedSamples => Samples;
     public long? OpusFrameCountPerChannel { get; init; }
-    // The observed 32 kHz Opus streams use their bank rate for playback of the decoded frames.
     public int DecodedSampleRate => Codec == 0x0B && SampleRate != 32000 ? 48000 : SampleRate;
     public double DurationSeconds => DecodedSampleRate > 0
         ? (double)(Codec == 0x0B ? OpusFrameCountPerChannel ?? Samples / Math.Max(1, Channels) : Samples) / DecodedSampleRate : 0;

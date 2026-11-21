@@ -6,3 +6,8 @@ dist/
 *.obj
 *.pdb
 *.zip
+Verification/
+Tests/
+Licenses/
+Tools/*LICENSE*.txt
+Tools/FFMPEG-BUILD-README.txt
