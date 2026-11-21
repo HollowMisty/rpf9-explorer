@@ -181,20 +181,17 @@ public static class TtpfReader
             bool legacyTopOnlyName = LegacyTopOnlyName(width, height, format, packedMips + 1, b, c, d, paddedMetadata, virtualSize, chunks);
             bool auxiliaryMapping = (c >> 21) != 0 || d != 0;
             string? limitation = null; Layout? layout = null; int exported = 0, baseMip = 0;
-            bool compactReadOnly = mode is 4 or 6 or 36 || mode == 2 && auxiliaryMapping; long stored = 0, ddsSize = 0;
+            bool readOnlyProfile = auxiliaryMapping || mode is not (0 or 2); long stored = 0, ddsSize = 0;
             try
             {
                 if (baseOffset == 0 || (c & 0x1FFFFF) == 0x1FFFFF) throw new NotSupportedException("This catalog record has no mapped allocation in this pool shard.");
                 if (baseOffset < paddedMetadata || baseOffset >= virtualSize) throw new InvalidDataException("Texture virtual base exceeds the pool data.");
                 if (dimension != 1 || depth != 1) throw new NotSupportedException("This ETPF array/volume layout has not been validated.");
-                if (mode is 0 or 2)
-                {
-                    if (auxiliaryMapping && (mode != 2 || !ValidatedAuxiliaryProfile(width, height, mips, format, nonTail, c >> 21, d)))
-                        throw new NotSupportedException("Auxiliary compact mip mapping is not decoded.");
-                }
-                else if (!compactReadOnly || !ValidatedCompactProfile(width, height, mips, format, nonTail, mode, c >> 21, d))
-                    throw new NotSupportedException("This compact mip mapping profile has not been validated.");
-                layout = SurfaceLayout(width, height, format, mips, mode == 0 ? 65536 : 4096);
+                bool supportedMode = auxiliaryMapping
+                    ? mode is 2 or 4 or 5 or 6 or 7 or 36 or 38
+                    : mode is 0 or 1 or 2 or 32 or 34;
+                if (!supportedMode) throw new NotSupportedException("This compact mip mapping profile has not been validated.");
+                layout = SurfaceLayout(width, height, format, mips, (mode & 6) == 0 ? 65536 : 4096);
                 if (layout.Size > virtualSize - baseOffset) throw new InvalidDataException("Texture allocation exceeds the virtual pool.");
                 long nextAllocation = virtualSize;
                 for (int following = i + 1; following < textures; following++)
@@ -204,21 +201,10 @@ public static class TtpfReader
                     if (candidate > baseOffset) { nextAllocation = candidate; break; }
                 }
                 if (layout.Size != nextAllocation - baseOffset) throw new InvalidDataException("Texture footprint does not match its native allocation span.");
-                int usableMipLimit = compactReadOnly ? nonTail : mips;
-                if (compactReadOnly)
-                {
-                    if (nonTail < 1 || nonTail > layout.FirstTail) throw new NotSupportedException("No validated standalone compact mip range is available.");
-                    long tailBytes = layout.Size - layout.Mips.Take(nonTail).Sum(m => (long)m.RegionSize);
-                    if (tailBytes < 0) throw new InvalidDataException("Compact tail region exceeds its native allocation.");
-                    for (int mip = nonTail - 1; mip >= 0; mip--)
-                    {
-                        if (layout.Mips[mip].Offset != tailBytes) throw new NotSupportedException("Compact standalone mip offsets are ambiguous.");
-                        tailBytes += layout.Mips[mip].RegionSize;
-                    }
-                    if (tailBytes != layout.Size) throw new InvalidDataException("Compact standalone mip ranges do not cover their expected allocation window.");
-                }
-                var available = new bool[usableMipLimit];
-                for (int mip = 0; mip < usableMipLimit; mip++)
+                if (auxiliaryMapping && !ValidateCompactStreamingChunks(chunks, baseOffset, layout.Size, mode, nonTail, c >> 21, d))
+                    throw new NotSupportedException("Auxiliary compact mip mapping is not decoded.");
+                var available = new bool[mips];
+                for (int mip = 0; mip < mips; mip++)
                 {
                     var level = layout.Mips[mip];
                     available[mip] = ChunksFor(chunks, baseOffset + level.Offset, level.RegionSize).All(x => x.Codec is 0 or 8);
@@ -226,7 +212,7 @@ public static class TtpfReader
                 baseMip = Array.FindIndex(available, usable => usable);
                 if (baseMip < 0) throw new NotSupportedException("All source mips require an unavailable Xbox BCPack decoder.");
                 if (baseMip == 0 && legacyTopOnlyName) exported = 1;
-                else while (baseMip + exported < usableMipLimit && available[baseMip + exported]) exported++;
+                else while (baseMip + exported < mips && available[baseMip + exported]) exported++;
                 var used = Enumerable.Range(baseMip, exported).SelectMany(mip => ChunksFor(chunks,
                     baseOffset + layout.Mips[mip].Offset, layout.Mips[mip].RegionSize)).Distinct().ToArray();
                 stored = used.Sum(x => (long)x.Packed); ddsSize = 148;
@@ -236,7 +222,9 @@ public static class TtpfReader
             catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or ArgumentException or OverflowException)
             { limitation = ex.Message; exported = baseMip = 0; stored = ddsSize = 0; }
             string formatName = RageTextureDecoder.GetTextureFormatName(format);
-            string note = compactReadOnly ? $"Read-only compact profile: {nonTail} standalone mips and {packedMips} packed tail mips. Packed tail decoding and native replacement are unavailable. " : "";
+            string note = auxiliaryMapping
+                ? $"Read-only compact profile: {nonTail} streaming mips and {packedMips} packed mips. Native replacement is unavailable. "
+                : readOnlyProfile ? $"Read-only native storage mode ({mode}). Native replacement is unavailable. " : "";
             note += baseMip > 0 ? $"Source is {width} × {height} with {mips} mips. Export starts at source mip {baseMip}: {Math.Max(1, width >> baseMip)} × {Math.Max(1, height >> baseMip)}, with {exported} decoded mip levels. Other source mips remain unavailable. "
                 : exported > 0 && exported < mips ? $"Source is {width} × {height} with {mips} mips. Export contains {exported} decoded mip levels starting at source mip 0: {width} × {height}. Other source mips remain unavailable. " : "";
             if (format is 10 or 34 or 41 or 54 or 95 or 96) note += "Floating-point channels clip to 0–1 for display; DDS preserves source values. ";
@@ -247,7 +235,7 @@ public static class TtpfReader
             var info = new TtpfTextureInfo(i, $"texture_{i:D6}_{id[..16]}{suffix}.dds",
                 width, height, format, formatName == "Unknown" ? $"DXGI {format}" : formatName, exported, depth, dimension, stored, ddsSize)
             { SourceMips = mips, NonTailMipCount = nonTail, PackedMipCount = packedMips, BaseMipLevel = baseMip,
-                SupportsNativeReplacement = !compactReadOnly && limitation == null && baseMip == 0 && exported == mips,
+                SupportsNativeReplacement = !readOnlyProfile && limitation == null && baseMip == 0 && exported == mips,
                 AssetKey = assetKey, Id = id, VirtualOffset = baseOffset, Limitation = limitation, PreviewNote = note.Length == 0 ? null : note.Trim() };
             native.Add(new(info, layout));
         }
@@ -261,7 +249,7 @@ public static class TtpfReader
             ["Top-mip-only exports"] = native.Count(x => x.Info.TopOnly).ToString("N0"),
             ["Lower-mip-only exports"] = native.Count(x => x.Info.CanExtract && x.Info.BaseMipLevel > 0).ToString("N0"),
             ["Source access"] = "Read-only; requested chunks only; zlib checksums checked on use",
-            ["Remaining layouts"] = "Auxiliary compact mapping, arrays/volumes and BCPack-dependent mip levels remain unavailable"
+            ["Remaining layouts"] = "Arrays/volumes and BCPack-dependent mip levels remain unavailable"
         };
         var result = new TtpfInfo(path, fileSize, virtualSize, 634, native.Select(x => x.Info).ToArray(), metadata);
         return new(result, chunks, native);
@@ -272,76 +260,74 @@ public static class TtpfReader
         if ((uint)index >= source.Native.Count) throw new ArgumentOutOfRangeException(nameof(index));
         var n = source.Native[index]; if (!n.Info.CanExtract || n.Layout is null) throw new NotSupportedException(n.Info.Limitation ?? "Texture layout unavailable."); return n;
     }
-    private static bool ValidatedAuxiliaryProfile(int width, int height, int mips, int format, int nonTail, uint meta, uint extra)
+    private static bool TryDecodeChunkPages(uint meta, uint streamFlags, Span<int> expectedPages, out int count)
     {
-        if (mips != 3 || nonTail != 3 || meta != 0x1A8 || extra != 0x01080008) return false;
-        return width == 1024 && (height == 512 && format == 61 || height == 1024 &&
-            RageTextureDecoder.IsBlockCompressed(format) && RageTextureDecoder.GetTextureElementBytes(format) == 8);
-    }
-    private static bool ValidatedCompactProfile(int width, int height, int mips, int format, int nonTail, int mode, uint meta, uint extra)
-    {
-        if (!RageTextureDecoder.IsBlockCompressed(format)) return false;
-        int bytes = RageTextureDecoder.GetTextureElementBytes(format);
-        return (mode, width, height, mips, nonTail, bytes, meta, extra) switch
+        count = 0;
+        if (((streamFlags >> 9) & 0x3FF) != 0) return false;
+        ulong packed = ((ulong)streamFlags << 11) | meta;
+        bool ended = false;
+        for (int k = 0; k < 4; k++)
         {
-            (4, 1024, 1024, 9, 3, 8, 0x503, 0x00B00106) => true,
-            (6, 512, 512, 8, 3, 8, 0x041, 0x00B800D4) => true,
-            (4, 256, 256, 7, 1, 8, 0x103, 0) => true,
-            (4, 512, 512, 8, 3, 16, 0x482, 0x015000F5) => true,
-            (4, 1024, 512, 8, 3, 8, 0x482, 0x015000F5) => true,
-            (4, 512, 1024, 8, 3, 8, 0x483, 0x013000F5) => true,
-            (4, 128, 256, 6, 1, 8, 0x083, 0) => true,
-            (4, 256, 512, 7, 1, 8, 0x167, 0) => true,
-            (4, 512, 256, 7, 1, 8, 0x166, 0) => true,
-            (4, 256, 256, 7, 1, 16, 0x166, 0) => true,
-            (4, 1024, 512, 8, 3, 16, 0x504, 0x900106) => true,
-            (4, 1024, 256, 7, 3, 16, 0x484, 0x11000F5) => true,
-            (6, 1024, 256, 7, 3, 8, 0x42, 0x9800D4) => true,
-            (6, 64, 1024, 5, 3, 8, 0x83, 0x3800B4) => true,
-            (4, 512, 1024, 8, 3, 16, 0x503, 0xB00106) => true,
-            (4, 512, 128, 6, 1, 16, 0x168, 0) => true,
-            (6, 256, 1024, 7, 3, 8, 0x83, 0x3800D4) => true,
-            (4, 1024, 128, 6, 1, 8, 0x168, 0) => true,
-            (4, 2048, 256, 7, 3, 16, 0x508, 0x100106) => true,
-            (4, 2048, 512, 8, 3, 8, 0x504, 0x900106) => true,
-            (6, 512, 256, 7, 3, 16, 0x42, 0x9800D4) => true,
-            (6, 1024, 128, 6, 3, 16, 0x84, 0x1800D4) => true,
-            (4, 512, 128, 6, 1, 8, 0x104, 0) => true,
-            (4, 256, 1024, 7, 3, 16, 0x483, 0x13000F5) => true,
-            (6, 1024, 64, 5, 3, 16, 0x83, 0x3800B4) => true,
-            (6, 256, 512, 7, 3, 16, 0x41, 0xB800D4) => true,
-            (4, 128, 128, 6, 1, 16, 0x82, 0) => true,
-            (4, 512, 64, 5, 1, 16, 0x108, 0) => true,
-            (4, 256, 128, 6, 1, 16, 0x104, 0) => true,
-            (6, 128, 1024, 6, 3, 16, 0x83, 0x3800D4) => true,
-            (4, 512, 64, 5, 1, 8, 0x84, 0) => true,
-            (4, 128, 512, 6, 1, 16, 0x167, 0) => true,
-            (4, 256, 128, 6, 1, 8, 0x82, 0) => true,
-            (4, 1024, 64, 5, 1, 8, 0x108, 0) => true,
-            (6, 1024, 32, 4, 3, 16, 0x82, 0x5800B4) => true,
-            (4, 128, 512, 6, 1, 8, 0x107, 0) => true,
-            (4, 512, 2048, 8, 3, 8, 0x507, 0x300106) => true,
-            (4, 256, 2048, 7, 3, 8, 0x507, 0x3000F5) => true,
-            (4, 512, 32, 4, 1, 16, 0x107, 0) => true,
-            (6, 128, 1024, 6, 3, 8, 0x83, 0x3800B4) => true,
-            (6, 64, 1024, 5, 3, 16, 0x83, 0x3800B4) => true,
-            (4, 256, 256, 5, 1, 16, 0x166, 0) => true,
-            (4, 128, 256, 6, 1, 16, 0x103, 0) => true,
-            (4, 256, 64, 5, 1, 16, 0x84, 0) => true,
-            (4, 16, 256, 3, 1, 16, 0x83, 0) => true,
-            (4, 256, 32, 4, 1, 16, 0x84, 0) => true,
-            (4, 64, 512, 5, 1, 16, 0x107, 0) => true,
-            (4, 2048, 256, 7, 3, 8, 0x484, 0x11000F5) => true,
-            (4, 64, 512, 5, 1, 8, 0x107, 0) => true,
-            (4, 64, 256, 5, 1, 8, 0x83, 0) => true,
-            (6, 256, 512, 9, 3, 16, 0x41, 0xB800D4) => true,
-            (6, 32, 1024, 4, 3, 16, 0x82, 0x5800B4) => true,
-            (4, 512, 512, 3, 3, 8, 0x502, 0xD00006) => true,
-            (36, 1024, 1024, 9, 3, 8, 0x503, 0xB00106) => true,
-            (36, 256, 256, 7, 1, 8, 0x103, 0) => true,
-            _ => false
-        };
+            int code = (int)((packed >> (5 * k)) & 0x1F);
+            if (code == 0) { ended = true; continue; }
+            if (ended) return false;
+            int pages = ChunkCodePages(code);
+            if (pages <= 0) return false;
+            expectedPages[count++] = pages;
+        }
+        return count > 0;
     }
+
+    private static bool TryValidateChunkSizes(IReadOnlyList<Chunk> chunks, long baseOffset, int allocationSize,
+        ReadOnlySpan<int> expectedPages, out List<Chunk> mapped)
+    {
+        mapped = ChunksFor(chunks, baseOffset, allocationSize);
+        if (mapped.Count != expectedPages.Length || mapped[0].Virtual != baseOffset) return false;
+        long totalBytes = 0;
+        for (int k = 0; k < expectedPages.Length; k++)
+        {
+            int expectedBytes = checked(expectedPages[k] * 4096);
+            if (mapped[k].Size != expectedBytes) return false;
+            totalBytes += expectedBytes;
+        }
+        return totalBytes == allocationSize;
+    }
+
+    private static bool ValidateCompactStreamingChunks(IReadOnlyList<Chunk> chunks, long baseOffset, int allocationSize,
+        int mode, int nonTail, uint meta, uint streamFlags)
+    {
+        Span<int> expectedPages = stackalloc int[4];
+        if (!TryDecodeChunkPages(meta, streamFlags, expectedPages, out int count)) return false;
+        // Upper streamFlags bits encode virtual alignment padding for nt=3 streaming chains:
+        // alignGroup 1: c0+pad=16 (64 KiB), 2: c0+c1+pad=16 (64 KiB), 3: c0+c1+pad=8 (32 KiB).
+        int alignGroup = (int)((streamFlags >> 19) & 3);
+        int padPages = (int)(streamFlags >> 21);
+        if (nonTail == 1)
+        {
+            if (mode is not (4 or 5 or 36) || alignGroup != 0 || padPages != 0) return false;
+        }
+        else if (nonTail == 3)
+        {
+            bool alignOk = alignGroup switch
+            {
+                1 => mode is 2 or 4 && count == 3 && expectedPages[0] + padPages == 16,
+                2 => mode is 4 or 5 or 36 && count >= 2 && expectedPages[0] + expectedPages[1] + padPages == 16,
+                3 => mode is 6 or 7 or 38 && count >= 2 && expectedPages[0] + expectedPages[1] + padPages == 8,
+                _ => false
+            };
+            if (!alignOk) return false;
+        }
+        else return false;
+        return TryValidateChunkSizes(chunks, baseOffset, allocationSize, expectedPages[..count], out _);
+    }
+
+    private static int ChunkCodePages(int code) => code switch
+    {
+        >= 1 and <= 8 => code,
+        10 => 12, 11 => 16, 12 => 24, 13 => 32, 14 => 48, 15 => 64, 16 => 128,
+        21 => 18, 22 => 80, 23 => 96, 24 => 144, 26 => 272, 27 => 384, 28 => 528,
+        _ => 0
+    };
     private static bool LegacyTopOnlyName(int width, int height, int format, int oldMips, uint b, uint c, uint d,
         long metadata, long virtualSize, IReadOnlyList<Chunk> chunks)
     {
