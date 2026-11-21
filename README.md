@@ -69,7 +69,7 @@ Some models still have missing or unsupported material bindings, even when the p
 
 Select a supported movie or audio bank to open its preview. Audio banks have a stream selector. Playback controls include play, pause, seek, loop, and volume. Movie previews also have frame stepping and full screen.
 
-Native game audio and Bink movie previews need the corresponding helpers in `Tools`. These helpers are included in the Windows build, but their executables are not included in the source ZIP. Some audio codecs remain unsupported, and decoded audio previews are limited to 120 seconds.
+Native game audio and Bink movie previews need the corresponding helpers in `Tools`. These helpers are included in the Windows build, but their executables are not included in the source ZIP. Some audio codecs remain unsupported, and decoded audio previews are limited to 120 seconds. For 32 kHz AWC Opus streams, the preview and its saved WAV use the bank's playback rate.
 
 ## Extract files
 
@@ -112,6 +112,8 @@ The publish script creates `dist/rpf9-explorer.exe` as a self-contained Windows 
 Bink requires a separately installed licensed Unreal Bink SDK. Opus requires libopus headers and a library. Those external SDKs are not included. Build the helpers before running `build.ps1` to copy them into the published `Tools` folder. For XMA2 audio, put a compatible `ffmpeg.exe` in `Tools` before publishing.
 
 Model and texture browsing do not need the media helpers.
+
+To smoke-test audio timing with generated AWC banks, run `dotnet run --project Tests/OpusPreviewSmoke -c Release -- Tools/opus-preview.exe` after building the Opus helper.
 
 ## Source layout
 
