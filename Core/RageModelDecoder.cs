@@ -10,6 +10,7 @@ public sealed record RageMesh(string Name, IReadOnlyList<Vector3> Positions, IRe
     public IReadOnlyList<Vector2>? TexCoords { get; init; }
     public IReadOnlyList<uint>? VertexColors { get; init; }
     public int? ShaderIndex { get; init; }
+    public IReadOnlyList<uint>? BonePaletteHashes { get; init; }
 }
 
 public sealed record RageTextureReference(uint ParameterHash, int TextureIndex, int SystemOffset,
@@ -535,6 +536,7 @@ public static class RageModelDecoder
                 int boneCount = U16(sys, model + 20);
                 Require(boneCount <= 4096);
                 hasBoneBindings |= boneCount > 0;
+                var paletteHashes = boneCount > 0 ? RageSkeleton.ReadModelPalette(sys, model) : null;
                 int geometries = S(model + 8, checked(count * 8));
                 int? shaderMapping = ReadShaderMapping(model, count, materials?.Count);
                 int bounds = S(model + 24, checked((count + (count > 1 ? 1 : 0)) * 32));
@@ -547,6 +549,7 @@ public static class RageModelDecoder
                     Vector3 partMin = ReadVector(sys, bound), partMax = ReadVector(sys, bound + 16);
                     Require(ValidBounds(partMin, partMax));
                     var mesh = ReadMesh(geometry, $"model_{mi}_geometry_{gi}", partMin, partMax, boneCount);
+                    if (paletteHashes is not null) mesh = mesh with { BonePaletteHashes = paletteHashes };
                     if (shaderMapping is int mapping)
                         mesh = mesh with { ShaderIndex = U16(sys, mapping + gi * 2) };
                     meshes.Add(mesh);
