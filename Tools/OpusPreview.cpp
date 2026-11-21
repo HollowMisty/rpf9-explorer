@@ -12,6 +12,8 @@
 #include <cmath>
 #include <limits>
 
+static constexpr int OpusDecodeRate = 48000;
+
 struct Handle {
     HANDLE value = INVALID_HANDLE_VALUE;
     explicit Handle(HANDLE h = INVALID_HANDLE_VALUE) : value(h) {}
@@ -130,7 +132,7 @@ static Sound inspect(Source& source, uint64_t selected) {
                     subblocksTotal+=count;
                 }
                 uint64_t header=(uint64_t(channels)*24+subblocksTotal*4+2047)&~uint64_t(2047);
-                if(header>blockSize || subblocksTotal*2048>blockSize-header || skip>48000*10)throw std::runtime_error("Music channel data or skip is out of bounds.");
+                if(header>blockSize || subblocksTotal*2048>blockSize-header || skip>OpusDecodeRate*10)throw std::runtime_error("Music channel data or skip is out of bounds.");
                 if(entries)chosen.spans.push_back({at+header+before*2048,uint64_t(entries)*2048,skip});
             }
             found=true;break;
@@ -151,9 +153,11 @@ int wmain(int argc,wchar_t** argv) {
         if (!maxSeconds || maxSeconds>120) throw std::runtime_error("Preview limit must be 1 to 120 seconds.");
         Source source(argv[1],number(argv[2]),number(argv[3]));
         Sound sound=inspect(source,number(argv[4]));
-        int outputRate=sound.codec==0x0B?48000:sound.rate;
+        // AWC's 32 kHz tag controls playback of the existing decoded frames. Opus packet math stays at 48 kHz.
+        const int outputRate = sound.codec == 0x0B && sound.rate != 32000 ? OpusDecodeRate : sound.rate;
+        const uint64_t maxFrames = maxSeconds * outputRate;
         int error=0;
-        std::unique_ptr<OpusDecoder,decltype(&opus_decoder_destroy)> decoder(sound.codec==0x0B?opus_decoder_create(48000,sound.channels,&error):nullptr,opus_decoder_destroy);
+        std::unique_ptr<OpusDecoder,decltype(&opus_decoder_destroy)> decoder(sound.codec==0x0B?opus_decoder_create(OpusDecodeRate,sound.channels,&error):nullptr,opus_decoder_destroy);
         if (sound.codec==0x0B && (!decoder || error!=OPUS_OK)) throw std::runtime_error("libopus decoder initialization failed.");
         output.value=CreateFileW(argv[5],GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
         if (output.value==INVALID_HANDLE_VALUE) throw std::runtime_error("Output already exists or could not be created.");
@@ -164,10 +168,10 @@ int wmain(int argc,wchar_t** argv) {
         uint8_t block[2048],previousBlock[2048]={};size_t previousUsed=0;uint64_t previousSamples=0;
         opus_int16 pcm[5760*2];uint64_t written=0,packets=0;int peak=0;long double sumSquares=0;bool limited=false;
         auto emit=[&](const opus_int16* samples,int count) {
-            int take=int(std::min<uint64_t>(uint64_t(count),maxSeconds*outputRate-written));
+            int take=int(std::min<uint64_t>(uint64_t(count),maxFrames-written));
             for(int k=0;k<take*sound.channels;k++){int x=samples[k];peak=std::max(peak,std::abs(x));sumSquares+=static_cast<long double>(x)*x;}
             write(output,samples,size_t(take)*sound.channels*2);written+=take;
-            if(written>=maxSeconds*outputRate)limited=true;
+            if(written>=maxFrames)limited=true;
         };
         for(const auto& span:sound.spans) {
             if(limited)break;
@@ -187,7 +191,7 @@ int wmain(int argc,wchar_t** argv) {
                     if(bytes>2048-p-2)throw std::runtime_error("Opus packet crosses a bounded 2048-byte block.");
                     const uint8_t* packet=block+p+2;
                     if(bool(packet[0]&4)!=(sound.channels==2))throw std::runtime_error("Opus TOC channel mismatch.");
-                    int expected=opus_packet_get_nb_samples(packet,bytes,48000);
+                    int expected=opus_packet_get_nb_samples(packet,bytes,OpusDecodeRate);
                     if(expected<=0 || expected>5760)throw std::runtime_error("Invalid Opus packet duration.");
                     blockSamples+=expected;
                     if(skip){if(uint64_t(expected)>skip)throw std::runtime_error("Music repeat skip is not whole packets.");skip-=expected;}
