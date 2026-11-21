@@ -25,8 +25,11 @@ public sealed class WorkspaceAsset(ArchiveDocument Document, ArchiveEntry Entry,
     public string LogicalPath => Texture == null ? Entry.Path : Entry.Path + "/" + Texture.Name;
     public ulong? AssetKey => PoolTexture?.AssetKey ?? Texture?.AssetKey;
     public string KeyText => AssetKey?.ToString("X16", CultureInfo.InvariantCulture) ?? Texture?.NameHash.ToString("X8", CultureInfo.InvariantCulture) ?? "";
+    public string ComponentHint => Kind != "model" ? "" : Name.StartsWith("hand_", StringComparison.OrdinalIgnoreCase)
+        ? "upper body skin arms hands" : Name.StartsWith("feet_", StringComparison.OrdinalIgnoreCase)
+        ? "lower body skin legs feet" : "";
     private string? _search;
-    public string SearchText => _search ??= string.Join(' ', Name, LogicalPath, SourceName, Kind, Format, Width.ToString(CultureInfo.InvariantCulture), Height.ToString(CultureInfo.InvariantCulture), KeyText);
+    public string SearchText => _search ??= string.Join(' ', Name, LogicalPath, SourceName, Kind, Format, Width.ToString(CultureInfo.InvariantCulture), Height.ToString(CultureInfo.InvariantCulture), KeyText, ComponentHint);
 }
 
 public sealed record WorkspaceIndexProgress(int Completed, int Total, string Source);

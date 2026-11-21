@@ -24,6 +24,7 @@ public partial class MainWindow
 
     private ReplacementTarget? CurrentReplacementTarget()
     {
+        if (_modelAssemblyActive) return null;
         if (_shownReplacementTarget != null) return _shownReplacementTarget;
         if (_document == null || FilesGrid.SelectedItem is not FileRow row || !row.Entry.CanExtract && row.Entry.Compression != "RDS5 texture") return null;
         var entry = row.Entry;

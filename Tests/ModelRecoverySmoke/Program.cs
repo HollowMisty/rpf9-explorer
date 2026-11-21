@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text.Json;
 using RpfPreview.Core;
 
 const int PageSize = 65536;
@@ -26,20 +28,21 @@ try
         !mixed.Segments!.Select(segment => segment.IsRaw ? segment.Size : 0).SequenceEqual([0L, 16L, 0L, 48L]))
         throw new Exception("The resource split and raw tail lengths differ from the fixture.");
 
-    var first = mixed.Segments![0];
-    var legacy = mixed with
-    {
-        Segments = [first], Size = first.Size, StoredSize = first.StoredSize, ResourceSystemBytes = null
-    };
-    RecoveryIndexCache.Save("models", path, [legacy], "synthetic compressed-only cache");
-    var v1 = RecoveryIndexCache.Load("models", path, fileSize, header);
-    if (v1?.Schema != "rpfpreview-payload-index/1" || v1.Entries[0].Segments![0].IsRaw)
-        throw new Exception("Compressed-only cache did not round-trip.");
-
-    RecoveryIndexCache.Save("models", path, [mixed], "synthetic packed drawable");
-    var v2 = RecoveryIndexCache.Load("models", path, fileSize, header);
-    if (v2?.Schema != "rpfpreview-payload-index/2" || v2.Entries[0].Segments!.Count(s => s.IsRaw) != 2)
-        throw new Exception("Mixed cache did not preserve the block types.");
+    RecoveryIndexCache.Save("models", path, [mixed], "synthetic packed drawable", complete: true);
+    var current = RecoveryIndexCache.Load("models", path, fileSize, header);
+    if (current?.Schema != "rpfpreview-payload-index/models/3" || !current.IsComplete ||
+        current.Entries[0].Segments!.Count(segment => segment.IsRaw) != 2)
+        throw new Exception("Current model cache did not preserve the mixed block types and completion marker.");
+    if (RecoveryIndexCache.LoadLegacyModels(path, fileSize, header) is not null)
+        throw new Exception("A current model cache was mistaken for a legacy index.");
+    var publicRaw = current with { Schema = "rpfpreview-payload-index/2" };
+    File.WriteAllText(cachePath, JsonSerializer.Serialize(publicRaw));
+    if (RecoveryIndexCache.Load("models", path, fileSize, header) is not null ||
+        RecoveryIndexCache.LoadLegacyModels(path, fileSize, header) is not { IsComplete: false } rawMigration ||
+        rawMigration.Entries[0].Segments!.Count(segment => segment.IsRaw) != 2)
+        throw new Exception("Public mixed-block cache migration did not preserve the validated entry.");
+    RecoveryIndexCache.Save("models", path, [mixed], "synthetic packed drawable", complete: true);
+    CheckCompressedLegacySchemas();
     var document = ArchiveReader.Open(path);
     var entry = document.Entries.Single(e => e.Path == mixed.Path);
     byte[] resource = ArchiveReader.ReadResourceData(document, entry);
@@ -49,6 +52,11 @@ try
     var model = RageModelDecoder.Decode(resource.AsSpan(0, system.Length), resource.AsSpan(system.Length));
     if (model is not { HasBoneBindings: true } || !model.Meshes.Single().Indices.SequenceEqual([0, 1, 2]))
         throw new Exception("The packed triangle or external bone palette did not decode.");
+
+    byte[] invalidDomain = (byte[])graphics.Clone();
+    BinaryPrimitives.WriteSingleLittleEndian(invalidDomain.AsSpan(96), 0.25f);
+    if (RageModelDecoder.Decode(system, invalidDomain) is not null)
+        throw new Exception("A packed quantizer outside the recorded mesh bounds was accepted.");
 
     var segments = mixed.Segments!;
     var damaged = mixed with
@@ -63,12 +71,55 @@ try
     }
     catch (InvalidDataException) { }
 
+    foreach (var invalid in new[] {
+        mixed with { ResourceSystemBytes = PageSize },
+        mixed with { Segments = [segments[0], segments[1] with { Offset = segments[1].Offset + 1 }, segments[2], segments[3]] },
+        mixed with { Segments = [null!] } })
+    {
+        try
+        {
+            RecoveryIndexCache.Save("models", path, [invalid], "synthetic invalid framing");
+            throw new Exception("Invalid mixed resource framing was accepted.");
+        }
+        catch (InvalidDataException) { }
+    }
+    try
+    {
+        RecoveryIndexCache.Save("models", path, [null!], "synthetic null entry");
+        throw new Exception("A null cached model entry was accepted.");
+    }
+    catch (InvalidDataException) { }
+    foreach (string schema in new[] { "rpfpreview-payload-index/1", "rpfpreview-payload-index/models/2" })
+    {
+        File.WriteAllText(cachePath, JsonSerializer.Serialize(current! with { Schema = schema }));
+        if (RecoveryIndexCache.LoadLegacyModels(path, fileSize, header) is not null)
+            throw new Exception("A legacy schema without raw-block capability accepted raw segments.");
+    }
+    RecoveryIndexCache.Save("models", path, [mixed], "synthetic valid framing");
+    if (RecoveryIndexCache.Load("models", path, fileSize, header) is not { IsComplete: false })
+        throw new Exception("A partial model index incorrectly reported completion.");
+
     graphics[LastVertexReference] = 3;
     WriteArchive(path);
     if (Rpf9ModelRecovery.RecoverAtOffsets(path, new FileInfo(path).Length, candidates).Count != 0)
         throw new Exception("The decoder accepted an out-of-range vertex reference in the raw graphics tail.");
 
-    Console.WriteLine("Recovered the packed drawable and both raw tails, verified cache readback, and rejected malformed inputs.");
+    graphics[LastVertexReference] = 2;
+    WriteArchive(path, dictionary: true);
+    var dictionaryEntry = Rpf9ModelRecovery.RecoverAtOffsets(path, new FileInfo(path).Length, candidates).Single();
+    if (dictionaryEntry.ResourceDrawableOffset != 1024 ||
+        !dictionaryEntry.Segments!.Select(segment => segment.IsRaw ? segment.Size : 0).SequenceEqual([0L, 16L, 0L, 48L]))
+        throw new Exception("Dictionary-owned mixed tails lost the selected child or block types.");
+    RecoveryIndexCache.Save("models", path, [dictionaryEntry], "synthetic dictionary mixed tails", complete: true);
+    var dictionaryDocument = ArchiveReader.Open(path);
+    var selected = dictionaryDocument.Entries.Single(item => item.Path == dictionaryEntry.Path);
+    byte[] dictionaryResource = ArchiveReader.ReadResourceData(dictionaryDocument, selected);
+    var selectedModel = RageModelDecoder.Decode(dictionaryResource.AsSpan(0, system.Length),
+        dictionaryResource.AsSpan(system.Length), selected.ResourceDrawableOffset);
+    if (selectedModel is not { IsDictionaryChild: true, DrawableOffset: 1024 } ||
+        RageModelDecoder.Decode(dictionaryResource.AsSpan(0, system.Length), dictionaryResource.AsSpan(system.Length), 1025) is not null)
+        throw new Exception("Mixed dictionary readback did not enforce table-owned selection.");
+    Console.WriteLine("Recovered standalone and dictionary packed drawables with both raw tails; verified current/legacy cache readback and malformed-input rejection.");
 }
 finally
 {
@@ -77,8 +128,51 @@ finally
     directory.Delete();
 }
 
-void WriteArchive(string destination)
+
+void CheckCompressedLegacySchemas()
 {
+    string legacyPath = Path.Combine(directory.FullName, "legacy.rpf");
+    string legacyCache = RecoveryIndexCache.CachePath("models", legacyPath);
+    try
+    {
+        foreach (bool dictionary in new[] { false, true })
+        {
+            WriteArchive(legacyPath, mixedTails: false, dictionary: dictionary);
+            long length = new FileInfo(legacyPath).Length;
+            var entry = Rpf9ModelRecovery.RecoverAtOffsets(legacyPath, length, [CandidateOffset]).Single();
+            if (entry.Segments!.Any(segment => segment.IsRaw) || (entry.ResourceDrawableOffset.HasValue != dictionary))
+                throw new Exception("The compressed legacy fixture has invalid resource ownership.");
+            string schema = dictionary ? "rpfpreview-payload-index/models/2" : "rpfpreview-payload-index/1";
+            var legacy = new RecoveryIndexCache.CachedIndex(schema, "models", Path.GetFullPath(legacyPath), length,
+                File.GetLastWriteTimeUtc(legacyPath).Ticks, Convert.ToHexString(SHA256.HashData(header)),
+                "synthetic legacy index", [entry]) { IsComplete = true };
+            File.WriteAllText(legacyCache, JsonSerializer.Serialize(legacy));
+            if (RecoveryIndexCache.Load("models", legacyPath, length, header) is not null ||
+                RecoveryIndexCache.LoadLegacyModels(legacyPath, length, header) is not { IsComplete: false } loaded ||
+                loaded.Entries[0].ResourceDrawableOffset != entry.ResourceDrawableOffset)
+                throw new Exception("Legacy model cache did not retain the entry and selected child.");
+        }
+    }
+    finally { File.Delete(legacyCache); File.Delete(legacyPath); }
+}
+
+static byte[] MakeDictionarySystem(byte[] source)
+{
+    byte[] data = (byte[])source.Clone();
+    const int Child = 1024, Hashes = 1248, Pointers = 1264;
+    data.AsSpan(0, 192).CopyTo(data.AsSpan(Child));
+    data.AsSpan(0, 192).Clear();
+    void S(int at, int address) => BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(at), 0x50000000UL + (uint)address);
+    void U16(int at, ushort value) => BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(at), value);
+    S(8, 192); S(32, Hashes); S(48, Pointers); S(Pointers, Child);
+    U16(40, 1); U16(42, 1); U16(56, 1); U16(58, 1);
+    data.AsSpan(Child + 8, 8).Clear();
+    return data;
+}
+
+void WriteArchive(string destination, bool mixedTails = true, bool dictionary = false)
+{
+    byte[] cpu = dictionary ? MakeDictionarySystem(system) : system;
     using var file = File.Create(destination);
     file.Write(header);
     file.Position = CandidateOffset;
@@ -88,10 +182,18 @@ void WriteArchive(string destination)
             compressed.Write(data);
         file.Write(new byte[(int)((-file.Position) & 15)]);
     }
-    WriteCompressed(system.AsSpan(0, PageSize));
-    file.Write(system.AsSpan(PageSize));
-    WriteCompressed(graphics.AsSpan(0, PageSize));
-    file.Write(graphics.AsSpan(PageSize));
+    if (mixedTails)
+    {
+        WriteCompressed(cpu.AsSpan(0, PageSize));
+        file.Write(cpu.AsSpan(PageSize));
+        WriteCompressed(graphics.AsSpan(0, PageSize));
+        file.Write(graphics.AsSpan(PageSize));
+    }
+    else
+    {
+        WriteCompressed(cpu);
+        WriteCompressed(graphics);
+    }
 }
 
 static (byte[] System, byte[] Graphics) MakeDrawable()
@@ -128,7 +230,7 @@ static (byte[] System, byte[] Graphics) MakeDrawable()
     U32(graphics, 0, 0x42);
     U32(graphics, 108, 2);
     F32(graphics, 112, 1f / 16777215); F32(graphics, 116, 1f / 16777215); F32(graphics, 120, 1f / 65535);
-    // The triangle occupies only part of the [0, 1] quantizer domain on each axis.
+
     U32(graphics, PositionOffset + 8, 0x80000000);
     U32(graphics, PositionOffset + 20, 0x8000);
 
@@ -141,7 +243,7 @@ static (byte[] System, byte[] Graphics) MakeDrawable()
     U32(graphics, IndexOffset + 28, (2u << 14) | (1u << 7));
     graphics[IndexOffset + 34] = 1;
     graphics[LastVertexReference] = 2;
-    graphics[IndexOffset + 38] = 7; // External bone index, with no local bone table.
-    graphics[IndexOffset + 40] = 0xCD; // Auxiliary index trailer.
+    graphics[IndexOffset + 38] = 7;
+    graphics[IndexOffset + 40] = 0xCD;
     return (system, graphics);
 }

@@ -11,9 +11,11 @@ namespace RpfPreview.Core;
 
 public static class Rpf9ModelRecovery
 {
-    public const int MaxRecoveredModels = 4096;
+    public const int MaxRecoveredModels = 500_000;
+    public const int MaxCandidateOffsets = 500_000;
     public const long DecodeBudget = 1024L * 1024 * 1024;
     private const int ScanBlock = 4 * 1024 * 1024;
+    private const int MaxResourceBlocks = 4096;
     private const int RawSystemTailBytes = 16;
     private const int RawGraphicsTailBytes = 48;
     private sealed record Block(long Offset, long Packed, byte[] Data, bool IsRaw = false);
@@ -35,18 +37,19 @@ public static class Rpf9ModelRecovery
         if (scanStart > file.Length) throw new ArgumentOutOfRangeException(nameof(scanStart));
         long end = scanLength is null ? file.Length : Math.Min(file.Length, checked(scanStart + scanLength.Value));
         long position = scanStart & ~4095L;
-        var candidates = new List<long>(); byte[] scan = new byte[ScanBlock];
+        var candidates = new List<long>(); byte[] scan = new byte[ScanBlock + 65536];
         while (position < end)
         {
             cancellationToken.ThrowIfCancellationRequested();
             int count = (int)Math.Min(ScanBlock, end - position);
-            file.Position = position; file.ReadExactly(scan.AsSpan(0, count));
-            for (int page = 0; page + 20 < count; page += 4096)
+            int readCount = (int)Math.Min(count + 65536L, file.Length - position);
+            file.Position = position; file.ReadExactly(scan.AsSpan(0, readCount));
+            for (int page = 0; page < count && page + 20 < readCount; page += 4096)
             {
                 long offset = position + page + 16;
-                if (offset < scanStart || scan.AsSpan(page, 16).IndexOfAnyExcept((byte)0) >= 0 || !ZlibHeader(scan.AsSpan(page + 16, 2))) continue;
-                if (!LooksLikeSystem(scan, page + 16, count - page - 16, fragmentsOnly)) continue;
-                if (candidates.Count >= 200_000) throw new InvalidDataException("The candidate limit was reached; scan a smaller range.");
+                if (offset < scanStart || offset >= end || scan.AsSpan(page, 16).IndexOfAnyExcept((byte)0) >= 0 || !ZlibHeader(scan.AsSpan(page + 16, 2))) continue;
+                if (!LooksLikeSystem(scan, page + 16, readCount - page - 16, fragmentsOnly)) continue;
+                if (candidates.Count >= MaxCandidateOffsets) throw new InvalidDataException("The candidate limit was reached; scan a smaller range.");
                 candidates.Add(offset);
             }
             position += count; progress?.Report(position);
@@ -74,62 +77,69 @@ public static class Rpf9ModelRecovery
         IReadOnlyList<long> candidateOffsets, int firstIndex = 0, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(candidateOffsets);
-        if (firstIndex < 0 || candidateOffsets.Count > 200_000) throw new ArgumentOutOfRangeException(nameof(firstIndex));
+        if (firstIndex < 0 || candidateOffsets.Count > MaxCandidateOffsets) throw new ArgumentOutOfRangeException(nameof(firstIndex));
         using var file = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (file.Length != fileSize) throw new IOException("The archive changed while it was being opened.");
-        var entries = new List<ArchiveEntry>(); var seen = new HashSet<long>(); long budget = 0;
+        var entries = new List<ArchiveEntry>(); var seen = new HashSet<long>();
         Span<byte> prefix = stackalloc byte[16];
         foreach (long candidate in candidateOffsets)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (entries.Count >= MaxRecoveredModels || budget >= DecodeBudget) break;
             if (!seen.Add(candidate) || candidate < 16 || candidate > fileSize - 6 || (candidate & 4095) != 16) continue;
             file.Position = candidate - 16; file.ReadExactly(prefix);
+            long budget = 0;
             if (prefix.IndexOfAnyExcept((byte)0) >= 0 ||
-                !TryResource(file, candidate, ref budget, cancellationToken, out var blocks, out int systemLength, out var model)) continue;
-            string safeName = SafeName(model.Name);
+                !TryResource(file, candidate, ref budget, cancellationToken, out var blocks, out int systemLength,
+                    out var models, out bool dictionary)) continue;
+            if (models.Count > MaxRecoveredModels - entries.Count)
+                throw new InvalidDataException("The recovered model limit was reached; recover a smaller batch.");
             long stored = 0, decoded = 0; var segments = new List<ArchiveSegment>(blocks.Count);
             foreach (var block in blocks)
+            { stored = checked(stored + block.Packed); decoded = checked(decoded + block.Data.Length); segments.Add(new(block.Offset, block.Packed, block.Data.Length) { IsRaw = block.IsRaw }); }
+            foreach (var model in models)
             {
-                stored = checked(stored + block.Packed); decoded = checked(decoded + block.Data.Length);
-                segments.Add(new ArchiveSegment(block.Offset, block.Packed, block.Data.Length) { IsRaw = block.IsRaw });
+                string safeName = SafeName(model.Name, dictionary);
+                string child = dictionary ? $"_child_{model.DrawableOffset:X8}" : "";
+                entries.Add(new($"recovered/models/{safeName}_at_{candidate:X16}{child}.r9modeldata", stored,
+                    decoded, candidate, false, false, false,
+                    "Recovered model", checked(firstIndex + entries.Count))
+                {
+                    Segments = segments, ResourceSystemBytes = systemLength,
+                    ResourceDrawableOffset = dictionary ? model.DrawableOffset : null
+                });
             }
-            entries.Add(new($"recovered/models/{safeName}_at_{candidate:X16}.r9modeldata", stored,
-                decoded, candidate, false, false, false,
-                "Recovered model", checked(firstIndex + entries.Count))
-            { Segments = segments, ResourceSystemBytes = systemLength });
         }
         return entries;
     }
 
     private static bool TryResource(FileStream file, long candidate, ref long budget, CancellationToken cancellationToken,
-        out List<Block> blocks, out int systemLength, out RageModel model)
+        out List<Block> blocks, out int systemLength, out IReadOnlyList<RageModel> models, out bool dictionary)
     {
-        blocks = []; systemLength = 0; model = null!;
-        if (!TryInflate(file, candidate, RageModelDecoder.MaxSystemBytes, ref budget, out var first) ||
+        blocks = []; systemLength = 0; models = []; dictionary = false;
+        if (!TryInflate(file, candidate, RageModelDecoder.MaxSystemBytes, ref budget, out var first, cancellationToken) ||
             !RageModelDecoder.LooksLikeResource(first.Data)) return false;
+        dictionary = RageModelDecoder.LooksLikeDrawableDictionary(first.Data);
         blocks.Add(first); int total = first.Data.Length;
         const int maximum = RageModelDecoder.MaxSystemBytes + RageModelDecoder.MaxGraphicsBytes;
-        while (blocks.Count <= 64)
+        while (blocks.Count <= MaxResourceBlocks)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            // A raw system tail is provisional until the following zlib block has inflated successfully.
             bool needsMore = true;
             if (!(blocks[^1].IsRaw && blocks[^1].Data.Length == RawSystemTailBytes) &&
-                TrySplit(blocks, total, cancellationToken, out systemLength, out model, out needsMore)) return true;
-            if (!needsMore || blocks.Count == 64 || total >= maximum ||
-                (!TryNext(file, blocks, maximum - total, ref budget, out var next) &&
-                 !TryRawTail(file, blocks, total, ref budget, out next))) return false;
+                TrySplit(blocks, total, dictionary, cancellationToken, out systemLength, out models, out needsMore)) return true;
+            if (!needsMore || blocks.Count == MaxResourceBlocks || total >= maximum ||
+                (!TryNext(file, blocks, maximum - total, ref budget, out var next, cancellationToken) &&
+                 !TryRawTail(file, blocks, total, dictionary, ref budget, out next, cancellationToken))) return false;
             blocks.Add(next); total = checked(total + next.Data.Length);
         }
         return false;
     }
 
-    private static bool TrySplit(List<Block> blocks, int total, CancellationToken cancellationToken,
-        out int systemLength, out RageModel model, out bool needsMore)
+    private static bool TrySplit(List<Block> blocks, int total, bool dictionary, CancellationToken cancellationToken,
+        out int systemLength, out IReadOnlyList<RageModel> models, out bool needsMore)
     {
-        systemLength = 0; model = null!; needsMore = false; int prefixLength = 0;
-        for (int split = 1; split <= Math.Min(blocks.Count, 32); split++)
+        systemLength = 0; models = []; needsMore = false; int prefixLength = 0;
+        for (int split = 1; split <= blocks.Count; split++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             prefixLength = checked(prefixLength + blocks[split - 1].Data.Length);
@@ -143,13 +153,30 @@ public static class Rpf9ModelRecovery
             if (graphicsLength < extent.RequiredGraphicsBytes) { needsMore = true; continue; }
             if (graphicsLength > RageModelDecoder.MaxGraphicsBytes) continue;
             byte[] graphics = Join(blocks, split, blocks.Count, graphicsLength);
-            // Other structures, such as skeletons and fragment physics, can extend beyond the walked ranges.
-            // Validate the split with the mesh's cluster tables and vertex bounds.
-            RageModel? decoded = RageModelDecoder.Decode(system, graphics);
-            if (decoded is null) continue;
-            systemLength = prefixLength; model = decoded; return true;
+
+
+            if (!TryDecodeResource(system, graphics, dictionary, out models)) continue;
+            systemLength = prefixLength; return true;
         }
         return false;
+    }
+
+    private static bool TryDecodeResource(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics,
+        bool dictionary, out IReadOnlyList<RageModel> models)
+    {
+        models = [];
+        if (dictionary)
+        {
+            var owned = RageModelDecoder.InspectDrawableDictionary(system);
+            if (owned is null || owned.Count == 0) return false;
+            var decoded = RageModelDecoder.DecodeModels(system, graphics);
+            if (decoded.Count != owned.Count || decoded.Where((model, index) =>
+                model.DrawableOffset != owned[index].DrawableOffset || model.Name != owned[index].Name).Any()) return false;
+            models = decoded; return true;
+        }
+        var model = RageModelDecoder.Decode(system, graphics);
+        if (model is null) return false;
+        models = [model]; return true;
     }
 
     private static byte[] Join(List<Block> blocks, int begin, int end, int length)
@@ -159,22 +186,26 @@ public static class Rpf9ModelRecovery
         return result;
     }
 
-    private static string SafeName(string name)
+    private static string SafeName(string name, bool preserveNativeHash = false)
     {
-        var chars = name.Select(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.' ? c : '_').ToArray();
+        var chars = name.Select(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.' ||
+            preserveNativeHash && c == '#' ? c : '_').ToArray();
         string result = new(chars); result = result.Trim('.');
         return result.Length == 0 ? "drawable" : result[..Math.Min(160, result.Length)];
     }
 
-    private static bool TryNext(FileStream file, List<Block> blocks, int maximum, ref long budget, out Block block)
+    private static bool TryNext(FileStream file, List<Block> blocks, int maximum, ref long budget, out Block block,
+        CancellationToken cancellationToken)
     {
         block = new(0, 0, []);
         long end = checked(blocks[^1].Offset + blocks[^1].Packed), next = (end + 15) & ~15L;
-        return ZeroPadding(file, end, next) && TryInflate(file, next, maximum, ref budget, out block);
+        return ZeroPadding(file, end, next) && TryInflate(file, next, maximum, ref budget, out block, cancellationToken);
     }
 
-    private static bool TryRawTail(FileStream file, List<Block> blocks, int total, ref long budget, out Block block)
+    private static bool TryRawTail(FileStream file, List<Block> blocks, int total, bool dictionary, ref long budget, out Block block,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         block = new(0, 0, []);
         if (blocks[^1].IsRaw || (blocks[^1].Data.Length & 0xFFFF) != 0) return false;
         long end = checked(blocks[^1].Offset + blocks[^1].Packed), next = (end + 15) & ~15L;
@@ -184,7 +215,6 @@ public static class Rpf9ModelRecovery
         file.ReadExactly(header);
         if (ZlibHeader(header)) return false;
 
-        // A small raw metadata remainder is followed immediately by a validated zlib stream.
         if (total <= RageModelDecoder.MaxSystemBytes - RawSystemTailBytes && next <= file.Length - RawSystemTailBytes - 2)
         {
             byte[] system = Join(blocks, 0, blocks.Count, total);
@@ -210,11 +240,11 @@ public static class Rpf9ModelRecovery
             }
         }
 
-        // Read exactly the remaining geometry extent, only accepting a tail that decodes as part of the model.
         int prefixLength = 0;
-        for (int split = 1; split < blocks.Count && split <= 32; split++)
+        for (int split = 1; split < blocks.Count; split++)
         {
-            prefixLength += blocks[split - 1].Data.Length;
+            cancellationToken.ThrowIfCancellationRequested();
+            prefixLength = checked(prefixLength + blocks[split - 1].Data.Length);
             if (prefixLength > RageModelDecoder.MaxSystemBytes) break;
             byte[] system = Join(blocks, 0, split, prefixLength);
             if (RageModelDecoder.ProbeRequiredExtents(system) is not { MetadataComplete: true } extent) continue;
@@ -225,7 +255,7 @@ public static class Rpf9ModelRecovery
             byte[] tail = new byte[remaining];
             file.ReadExactly(tail);
             byte[] graphics = [.. Join(blocks, split, blocks.Count, graphicsLength), .. tail];
-            if (RageModelDecoder.Decode(system, graphics) is null) continue;
+            if (!TryDecodeResource(system, graphics, dictionary, out _)) continue;
             budget += remaining;
             block = new(next, remaining, tail, true);
             return true;
@@ -254,7 +284,8 @@ public static class Rpf9ModelRecovery
         file.ReadExactly(bytes[..count]); return bytes[..count].IndexOfAnyExcept((byte)0) < 0;
     }
 
-    private static bool TryInflate(FileStream file, long offset, int maximum, ref long budget, out Block block)
+    private static bool TryInflate(FileStream file, long offset, int maximum, ref long budget, out Block block,
+        CancellationToken cancellationToken)
     {
         block = new(0, 0, []);
         if (maximum < 1 || offset < 0 || offset > file.Length - 6 || budget >= DecodeBudget) return false;
@@ -268,6 +299,7 @@ public static class Rpf9ModelRecovery
             using var output = new MemoryStream(); byte[] buffer = new byte[8192]; uint a = 1, b = 0;
             while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int n = zlib.Read(buffer); if (n == 0) break;
                 budget += n; if (budget > DecodeBudget || output.Length > maximum - n) return false;
                 output.Write(buffer, 0, n);
@@ -286,7 +318,7 @@ public static class Rpf9ModelRecovery
             {
                 if (BinaryPrimitives.ReadUInt32BigEndian(tail.AsSpan(i, 4)) != adler) continue;
                 long candidate = searchStart + i + 4 - offset;
-                if (!ValidateExact(file, offset, candidate, output.GetBuffer().AsSpan(0, (int)output.Length))) continue;
+                if (!ValidateExact(file, offset, candidate, output.GetBuffer().AsSpan(0, (int)output.Length), cancellationToken)) continue;
                 packed = candidate; break;
             }
             if (packed < 0) return false;
@@ -295,7 +327,8 @@ public static class Rpf9ModelRecovery
         catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException or OverflowException) { return false; }
     }
 
-    private static bool ValidateExact(FileStream file, long offset, long length, ReadOnlySpan<byte> expected)
+    private static bool ValidateExact(FileStream file, long offset, long length, ReadOnlySpan<byte> expected,
+        CancellationToken cancellationToken)
     {
         file.Position = offset;
         using var limited = new SmallReads(file, offset, length);
@@ -303,6 +336,7 @@ public static class Rpf9ModelRecovery
         byte[] buffer = new byte[8192]; int at = 0;
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             int count = zlib.Read(buffer); if (count == 0) break;
             if (count > expected.Length - at || !buffer.AsSpan(0, count).SequenceEqual(expected.Slice(at, count))) return false;
             at += count;

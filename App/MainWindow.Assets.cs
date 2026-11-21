@@ -33,6 +33,7 @@ public partial class MainWindow
 
     private void ResetAssetPreview()
     {
+        ClearModelAssemblyState();
         _audioTrackCancellation?.Cancel();
         _audioTrackCancellation?.Dispose();
         _audioTrackCancellation = null;
@@ -133,7 +134,7 @@ public partial class MainWindow
             var bytes = ArchiveReader.ReadResourceData(document, entry, token);
             int split = entry.ResourceSystemBytes ?? checked((int)entry.Segments![0].Size);
             if (split <= 0 || split >= bytes.Length) throw new InvalidDataException("Invalid model section boundary.");
-            var model = RageModelDecoder.Decode(bytes.AsSpan(0, split), bytes.AsSpan(split))
+            var model = RageModelDecoder.Decode(bytes.AsSpan(0, split), bytes.AsSpan(split), entry.ResourceDrawableOffset)
                 ?? throw new InvalidDataException("The resource does not contain a supported validated model.");
             return (Model: model, System: bytes.AsMemory(0, split), Graphics: bytes.AsMemory(split));
         }, token);
@@ -143,7 +144,7 @@ public partial class MainWindow
         ModelPreview.ShowMeshes(model.Meshes.Select(m => new MeshPreviewPart(m.Name, m.Positions, m.Indices) { TexCoords = m.TexCoords, VertexColors = m.VertexColors }));
         ModelTab.IsEnabled = true; PreviewTabs.SelectedItem = ModelTab;
         TextTab.Header = "Details";
-        TextPreview.Text = $"Native model: {model.Name}\n\n{model.Meshes.Count:N0} mesh parts\n{ModelPreview.PresentedVertices:N0} vertices\n{ModelPreview.PresentedTriangles:N0} triangles\n{model.Meshes.Count(m => m.TexCoords != null):N0} mesh parts with validated UV coordinates\n{model.Materials?.Count ?? 0:N0} native material records\n\nGeometry comes from the source vertex and meshlet index buffers. The preview uses a neutral material. Material texture IDs are retained, but unresolved bindings are not rendered. Export OBJ saves validated geometry and supported UV coordinates.\n\n{model.PresentationNote}";
+        TextPreview.Text = $"Native model: {model.Name}\n\n{(model.IsDictionaryChild ? "Selected drawable dictionary component · original coordinates retained\n" : "")}{model.Meshes.Count:N0} mesh parts\n{ModelPreview.PresentedVertices:N0} vertices\n{ModelPreview.PresentedTriangles:N0} triangles\n{model.Meshes.Count(m => m.TexCoords != null):N0} mesh parts with validated UV coordinates\n{model.Materials?.Count ?? 0:N0} native material records\n\nGeometry comes from the source vertex and meshlet index buffers. The preview uses a neutral material. Material texture IDs are retained, but unresolved bindings are not rendered. Export OBJ saves validated geometry and supported UV coordinates.\n\n{model.PresentationNote}";
         PreviewMetaText.Text = $"{model.Name} · {ModelPreview.PresentedVertices:N0} vertices · {ModelPreview.PresentedTriangles:N0} triangles";
         PreviewFootnoteText.Text = model.PresentationNote ?? "Geometry preview · neutral material · drag to orbit, right-drag to pan, wheel to zoom";
         try
@@ -320,7 +321,7 @@ public partial class MainWindow
             name = new string(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
             var dialog = new SaveFileDialog { Title = texture ? "Export texture" : "Save decoded audio preview", Filter = texture ? "DDS texture|*.dds" : "PCM wave audio|*.wav", FileName = name, DefaultExt = texture ? ".dds" : ".wav" };
             if (dialog.ShowDialog(this) != true) return;
-            if (_document != null && string.Equals(Path.GetFullPath(dialog.FileName), _document.SourcePath, StringComparison.OrdinalIgnoreCase)) throw new IOException("Choose a filename different from the source archive.");
+            if ((_document != null && string.Equals(Path.GetFullPath(dialog.FileName), _document.SourcePath, StringComparison.OrdinalIgnoreCase)) || _modelAssemblySourcePaths.Contains(Path.GetFullPath(dialog.FileName))) throw new IOException("Choose a filename different from every source archive.");
             if (poolTexture) File.WriteAllBytes(dialog.FileName, TtpfReader.CreateDds(_ttpfInfo!.SourcePath, _ttpfTextureIndex));
             else if (texture) File.WriteAllBytes(dialog.FileName, RageTextureDecoder.CreateDds(_textureSystem!, _textureGraphics!, ((AssetChoice)AssetSelector.SelectedItem).Index));
             else if (_audioPlayer != null) File.Copy(_audioPlayer.PcmPath, dialog.FileName, true);
@@ -332,11 +333,11 @@ public partial class MainWindow
     private void ModelExport_Click(object sender, RoutedEventArgs e)
     {
         if (_decodedModel == null) return;
-        var dialog = new SaveFileDialog { Title = "Export decoded model geometry", Filter = "Wavefront OBJ|*.obj", DefaultExt = ".obj", FileName = Path.GetFileNameWithoutExtension(_decodedModel.Name) };
+        var dialog = new SaveFileDialog { Title = _modelAssemblyActive ? "Export experimental static assembly geometry" : "Export decoded model geometry", Filter = "Wavefront OBJ|*.obj", DefaultExt = ".obj", FileName = Path.GetFileNameWithoutExtension(_decodedModel.Name) };
         if (dialog.ShowDialog(this) != true) return;
         try
         {
-            if (_document != null && string.Equals(Path.GetFullPath(dialog.FileName), _document.SourcePath, StringComparison.OrdinalIgnoreCase)) throw new IOException("Choose a filename different from the source archive.");
+            if ((_document != null && string.Equals(Path.GetFullPath(dialog.FileName), _document.SourcePath, StringComparison.OrdinalIgnoreCase)) || _modelAssemblySourcePaths.Contains(Path.GetFullPath(dialog.FileName))) throw new IOException("Choose a filename different from every source archive.");
             File.WriteAllText(dialog.FileName, RageModelDecoder.CreateObj(_decodedModel)); StatusText.Text = "Saved " + dialog.FileName;
         }
         catch (Exception ex) { StatusText.Text = "Export failed: " + ex.Message; }
