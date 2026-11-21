@@ -10,6 +10,7 @@ public sealed record ArchiveEntry(string Path, long StoredSize, long Size, long 
     public string? Limitation { get; init; }
     public IReadOnlyList<ArchiveSegment>? Segments { get; init; }
     public int? ResourceSystemBytes { get; init; }
+    public int? ResourceDrawableOffset { get; init; }
     public bool CanExtract => !IsDirectory && !IsEncrypted && Limitation is null;
 }
 

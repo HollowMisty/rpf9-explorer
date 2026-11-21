@@ -1,4 +1,4 @@
-# rpf9-explorer 1.0
+# rpf9-explorer 1.0.1
 
 A Windows desktop viewer for RPF archives and game assets. Open multiple archives or a folder, search textures, preview models and media, export files, and save replacement projects.
 
@@ -8,7 +8,7 @@ RPF9 support is partial. The original archive directory is not decoded, and the 
 
 This is an unofficial project developed while inspecting RPF9 files associated with GTA 6. **The source contains no actual GTA 6 game code.** GTA 6 source code, decompiled game code, game executables, and game scripts are not included.
 
-This repository contains the explorer's code, build files, and documentation. Game archives and raw model, texture, audio, and movie files are not bundled. The screenshots show the app displaying files loaded locally.
+The source package contains the explorer's code, build files, documentation, and third-party notices. Game archives and raw model, texture, audio, and movie files are not bundled. The screenshots show the app displaying files loaded locally.
 
 This project is not affiliated with, endorsed by, or sponsored by Rockstar Games or Take-Two Interactive. GTA 6 and related names belong to their respective owners.
 
@@ -22,7 +22,7 @@ Extract the Windows build ZIP and run `rpf9-explorer.exe`. Keep the `Tools` and 
 
 Opening more files adds them to the current workspace. Use **File > Clear loaded sources** to start over. A workspace can hold up to 512 source files.
 
-Select a source or folder on the left to browse it. If an RPF9 archive has few results, **Scan entire archive** searches the full file for supported payloads and saves a local index. This can take a while on large archives. It does not decode the original directory.
+Select a source or folder on the left to browse it. Model discovery now checks the entire RPF9 file on first open, including drawable dictionaries that contain character components. Older model indexes are refreshed automatically, while validated earlier models are retained. Progress is shown and discovery can be canceled. Large archives can take a while on the first pass; later opens use the saved index. **Scan entire archive** also searches other supported payload types. These scans do not decode the original archive directory.
 
 ## Find and preview textures
 
@@ -61,6 +61,14 @@ Choose **Models**, search for a model, and select it. The preview loads supporte
 
 Drag with the left mouse button to orbit, drag with the right mouse button to pan, and use the mouse wheel to zoom. **Reset view** resets the camera. **Export OBJ** saves decoded geometry and supported UV coordinates.
 
+Character parts inside drawable dictionaries appear as individual model results using their native names. Searching `lucia` can find explicitly named Lucia parts, while shared body parts and player components may have names such as `hand_fr1`, `feet_fr1`, or `player_story000_00`. Free-text searches for `body`, `arms` or `legs` also include the shared skin components. These names do not by themselves identify an authored character or outfit. Different detail variants may share a name; source offsets distinguish them.
+
+Use **Add selected parts** to collect model components across different searches. **Preview queued parts** overlays the collected components in their original coordinates and keeps their supported texture bindings. **Clear parts** empties the queue. You can also Ctrl- or Shift-select two or more visible rows and click **Preview together**. **Export OBJ** saves the combined geometry. **Assembly details** lists every component, omitted selection, source and material mapping. This is a static component preview. It does not select missing body parts, infer character identity, apply body morphs, or reproduce animation. Alternate clothes and detail variants can overlap.
+
+![Character component recovered from a drawable dictionary](docs/screenshots/character-parts.png)
+
+![Selected body parts retained across searches and previewed together](docs/screenshots/model-assembly.png)
+
 Load the relevant texture pools if a model appears gray. The text below the preview reports missing materials, lower-resolution mip levels, and layered-material approximations. Layered materials show the first available supported color layer. Some distant models use their native vertex colors when they have no UV coordinates.
 
 Some models still have missing or unsupported material bindings, even when the pools are loaded. Xbox BCPack decoding is unavailable. Full game shaders, palette effects, animation, and skeleton transforms are not reproduced.
@@ -75,7 +83,7 @@ Native game audio and Bink movie previews need the corresponding helpers in `Too
 
 Select results and click **Extract selected**. Use Ctrl or Shift to select multiple rows or thumbnails. **Extract results** exports available entries in the current filtered results.
 
-Exports are grouped into separate source folders. Existing files are not overwritten. Texture image entries export as DDS files. Recovered dictionary and model payloads use the app's `.r9texdata` and `.r9modeldata` formats. Use **Export DDS** or **Export OBJ** when you need standard files.
+Exports are grouped into separate source folders. Existing files are not overwritten. Texture image entries export as DDS files. Recovered model entries now export their selected geometry as OBJ, including the correct drawable dictionary child. Texture dictionary payloads use the app's `.r9texdata` format. **Export OBJ** also saves the current model or static assembly.
 
 Extraction exports the original assets. Staged replacements are stored separately in the workspace.
 

@@ -60,7 +60,7 @@ static Sound inspect(Source& source, uint64_t selected) {
     std::vector<uint8_t> h(headerSize);source.read(0,h.data(),h.size());
     uint64_t p=16+((flags&0x400000)?4:0),indexStart=0;
     if (flags&0x10000) { indexStart=p;p+=uint64_t(n)*2; }
-    if (flags&0x200000) p+=(uint64_t(n)+1)*4;
+    if (flags&0x200000) p+=(uint64_t(n)+1)*4;  
     uint64_t infoStart=p;p+=uint64_t(n)*4;
     if (p>h.size()) throw std::runtime_error("Stream table out of bounds.");
     uint32_t total=0,previous=0;
@@ -212,3 +212,4 @@ int wmain(int argc,wchar_t** argv) {
         output.close();if(created) DeleteFileW(argv[5]);fprintf(stderr,"%s\n",e.what());return 1;
     }
 }
+

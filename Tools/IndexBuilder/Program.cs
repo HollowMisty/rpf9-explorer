@@ -6,7 +6,24 @@ if (args.Length < 3) throw new ArgumentException("Usage: IndexBuilder models|pro
 string source = Path.GetFullPath(args[1]);
 var watch = Stopwatch.StartNew();
 var length = new FileInfo(source).Length;
-if (args[0] is "models" or "proof-models" or "retry-models" or "fragments")
+if (args[0] == "models-refresh")
+{
+    string output = Path.GetFullPath(args[2]); Directory.CreateDirectory(output);
+    int last = -1;
+    int count = PayloadIndexBuilder.BuildModels(source, new InlineProgress<PayloadIndexProgress>(p =>
+    {
+        int step = (int)(p.Fraction * 100);
+        if (step == last) return; last = step; Console.WriteLine(p.Message);
+    }));
+    using var file = File.OpenRead(source); byte[] header = new byte[64]; file.ReadExactly(header);
+    var cache = RecoveryIndexCache.Load("models", source, length, header)!;
+    var report = new { source, count, cache.IsComplete, elapsedSeconds = watch.Elapsed.TotalSeconds,
+        dictionaryChildren = cache.Entries.Count(e => e.ResourceDrawableOffset != null), cache.Coverage,
+        lucia = cache.Entries.Where(e => e.Name.Contains("cs_lucia_", StringComparison.OrdinalIgnoreCase)).ToArray() };
+    File.WriteAllText(Path.Combine(output, "model-refresh.json"), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine(JsonSerializer.Serialize(new { count, cache.IsComplete, elapsedSeconds = watch.Elapsed.TotalSeconds }));
+}
+else if (args[0] is "models" or "proof-models" or "retry-models" or "fragments")
 {
     IReadOnlyList<long> candidates;
     var entries = new List<ArchiveEntry>();

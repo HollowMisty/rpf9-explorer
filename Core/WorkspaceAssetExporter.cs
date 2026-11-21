@@ -24,7 +24,18 @@ public static class WorkspaceAssetExporter
                 foreach (var asset in entryGroup)
                 {
                     token.ThrowIfCancellationRequested();
-                    if (asset.Texture == null)
+                    if (asset.Entry.Compression == "Recovered model")
+                    {
+                        resource ??= ArchiveReader.ReadResourceData(asset.Document, asset.Entry, token);
+                        split = asset.Entry.ResourceSystemBytes ?? checked((int)asset.Entry.Segments![0].Size);
+                        var model = RageModelDecoder.Decode(resource.AsSpan(0, split), resource.AsSpan(split), asset.Entry.ResourceDrawableOffset)
+                            ?? throw new InvalidDataException("The selected model no longer matches its validated source.");
+                        byte[] obj = Encoding.UTF8.GetBytes(RageModelDecoder.CreateObj(model));
+                        string output = ArchiveReader.SafeDestination(sourceFolder, Path.ChangeExtension(asset.Entry.Path, ".obj"));
+                        await WriteExportAsync(output, obj, token);
+                        bytesCopied += obj.Length;
+                    }
+                    else if (asset.Texture == null)
                     {
                         await asset.Document.ExtractAsync(new[] { asset.Entry }, sourceFolder, cancellationToken: token);
                         bytesCopied += asset.Size;
@@ -50,6 +61,18 @@ public static class WorkspaceAssetExporter
                 }
             }
         }
+    }
+    private static async Task WriteExportAsync(string output, byte[] content, CancellationToken token)
+    {
+        GuardDirectory(Path.GetDirectoryName(output)!); Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+        string temporary = output + "." + Guid.NewGuid().ToString("N") + ".partial";
+        try
+        {
+            if (File.Exists(output)) throw new IOException("An export already exists: " + output);
+            await File.WriteAllBytesAsync(temporary, content, token); token.ThrowIfCancellationRequested();
+            GuardDirectory(Path.GetDirectoryName(output)!); File.Move(temporary, output, false);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
     private static string SafeName(string name)
     {

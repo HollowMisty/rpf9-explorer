@@ -32,8 +32,8 @@ extern "C" {
     void __stdcall BinkGoto(BinkPrefix*,U32,S32);
     void __stdcall BinkClose(BinkPrefix*);
     char* __stdcall BinkGetError();
-
-
+     
+     
     int setup_rhi(void*,void*,S32,void**) { return 0; }
     void shutdown_rhi() {}
     void* createtextures_rhi(void*) { return nullptr; }
@@ -77,7 +77,7 @@ int wmain(int argc,wchar_t** argv) {
     if(u32(36)&4) {CloseHandle(input);return error("HDR thumbnail conversion is not supported");}
     position.QuadPart=0; SetFilePointerEx(input,position,nullptr,FILE_BEGIN);
     OpenOptions options{};options.fileOffset=offset;options.ioBufferSize=1024*1024;options.forceRate=-1;options.forceRateDiv=0;options.simulate=-1;
-
+     
     constexpr U32 flags=0x00800000u|0x00000020u|0x01000000u|0x08000000u|0x00004000u;
     BinkPrefix* b=BinkOpenWithOptions(reinterpret_cast<const char*>(input),&options,flags);
     if(!b){fprintf(stderr,"BinkOpen failed: %s\n",BinkGetError());CloseHandle(input);return 2;}

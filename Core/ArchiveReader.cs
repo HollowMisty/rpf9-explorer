@@ -72,7 +72,8 @@ public static class ArchiveReader
             ?? (Path.GetFileName(path).Equals("audio.rpf", StringComparison.OrdinalIgnoreCase)
                 ? AwcRecovery.Recover(path, length, header, nextIndex) : Array.Empty<ArchiveEntry>());
         nextIndex += audio.Count;
-        var cachedModels = RecoveryIndexCache.Load("models", path, length, header, nextIndex);
+        var cachedModels = RecoveryIndexCache.Load("models", path, length, header, nextIndex)
+            ?? RecoveryIndexCache.LoadLegacyModels(path, length, header, nextIndex);
         var models = cachedModels?.Entries ?? Rpf9ModelRecovery.Recover(path, length, header, nextIndex);
         nextIndex += models.Count;
         var cachedShaders = RecoveryIndexCache.Load("shaders", path, length, header, nextIndex);

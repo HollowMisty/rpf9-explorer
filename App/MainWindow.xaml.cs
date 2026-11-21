@@ -431,7 +431,9 @@ public partial class MainWindow : Window
             + (Asset?.PoolTexture?.PreviewNote is string note ? "\n" + note : "");
         public string OffsetLabel => Entry.Offset.ToString("X10");
         public string TypeLabel => Asset?.IsTextureChild == true ? "Texture" : Entry.Compression switch { "Recovered AWC" => "Audio bank", "Recovered model" => "Model", "Recovered texture dictionary" => "Texture folder", "RDS5 texture" => "Streaming texture", "Recovered raw deflate shader" => "Native shader", _ => Entry.Extension };
-        public string DisplayName => Asset?.Texture?.Name ?? (Entry.Compression.StartsWith("Recovered Bink", StringComparison.Ordinal)
+        public string DisplayName => Asset?.Texture?.Name ?? (Entry.ResourceDrawableOffset is int drawable
+            ? Entry.Name.Split("_at_", StringSplitOptions.None)[0] + $" · child {drawable:X}"
+            : Entry.Compression.StartsWith("Recovered Bink", StringComparison.Ordinal)
             ? "Movie " + Entry.Name.Split('_').ElementAtOrDefault(1) + Entry.Extension
             : Entry.Compression == "Recovered model" ? Entry.Name.Split("_at_", StringSplitOptions.None)[0]
             : Entry.Compression == "Recovered texture dictionary" ? "Texture dictionary " + Entry.Offset.ToString("X10")

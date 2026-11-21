@@ -6,6 +6,65 @@ public sealed record PayloadIndexResult(int Models, int TextureDictionaries, int
 
 public static class PayloadIndexBuilder
 {
+    public static int BuildModels(string source, IProgress<PayloadIndexProgress>? progress = null, CancellationToken token = default)
+    {
+        token.ThrowIfCancellationRequested();
+        source = Path.GetFullPath(source);
+        long length = new FileInfo(source).Length;
+        if (length < 64) throw new InvalidDataException("The source is too short.");
+        byte[] header = new byte[64];
+        using (var file = File.OpenRead(source)) file.ReadExactly(header);
+        if (!header.AsSpan(0, 4).SequenceEqual("9FPR"u8)) throw new NotSupportedException("Model discovery supports the observed little-endian RPF9 format.");
+        var cached = RecoveryIndexCache.Load("models", source, length, header);
+        if (cached?.IsComplete == true)
+        {
+            progress?.Report(new(1, $"Model index ready · {cached.Entries.Count:N0} models"));
+            return cached.Entries.Count;
+        }
+        var previous = cached ?? RecoveryIndexCache.LoadLegacyModels(source, length, header);
+        var models = previous?.Entries.ToList() ?? new List<ArchiveEntry>();
+        var known = models.Select(entry => entry.Offset).ToHashSet();
+        var offsets = Rpf9ModelRecovery.FindCandidateOffsets(source, progress:
+            new InlineProgress<long>(position => progress?.Report(new(.35 * position / length,
+                $"Discovering model containers · {position:N0}/{length:N0} bytes"))), cancellationToken: token);
+        int accepted = 0;
+        try
+        {
+            for (int i = 0; i < offsets.Count; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                if (!known.Contains(offsets[i]))
+                {
+                    var entries = Rpf9ModelRecovery.RecoverAtOffsets(source, length, new[] { offsets[i] }, models.Count, token);
+                    if (models.Count + entries.Count > 500_000) throw new InvalidDataException("The model index exceeds 500,000 entries. Index a smaller source.");
+                    models.AddRange(entries); accepted += entries.Count;
+                }
+                if (i % 50 == 0 || i + 1 == offsets.Count)
+                    progress?.Report(new(.35 + .65 * (i + 1) / Math.Max(1, offsets.Count),
+                        $"Indexing models · {i + 1:N0}/{offsets.Count:N0} containers · {models.Count:N0} models"));
+                if (i > 0 && i % 1000 == 0 && accepted > 0)
+                {
+                    RecoveryIndexCache.Save("models", source, models,
+                        $"Dictionary-aware model scan in progress · {i + 1:N0}/{offsets.Count:N0} containers validated.");
+                    accepted = 0;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (accepted > 0) RecoveryIndexCache.Save("models", source, models,
+                "Dictionary-aware model scan canceled. Validated models are retained; discovery will resume on reopen.");
+            throw;
+        }
+        token.ThrowIfCancellationRequested();
+        var ordered = models.OrderBy(entry => entry.Offset).ThenBy(entry => entry.ResourceDrawableOffset ?? -1)
+            .ThenBy(entry => entry.Path, StringComparer.Ordinal).Select((entry, index) => entry with { Index = index }).ToArray();
+        RecoveryIndexCache.Save("models", source, ordered,
+            $"Full {length:N0}-byte model-container scan · {ordered.Length:N0} supported models including drawable dictionary children. Unknown layouts and the original RPF9 directory remain undecoded.", complete: true);
+        progress?.Report(new(1, $"Model index ready · {ordered.Length:N0} models"));
+        return ordered.Length;
+    }
+
     public static PayloadIndexResult Build(string source, IProgress<PayloadIndexProgress>? progress = null, CancellationToken token = default)
     {
         source = Path.GetFullPath(source);
@@ -17,18 +76,7 @@ public static class PayloadIndexBuilder
             if (!magic.SequenceEqual("9FPR"u8)) throw new NotSupportedException("Full payload scanning currently supports the observed little-endian RPF9 format.");
         }
         void Report(int stage, double part, string text) => progress?.Report(new((stage + Math.Clamp(part, 0, 1)) / 4, text));
-        var modelOffsets = Rpf9ModelRecovery.FindCandidateOffsets(source, 0, null,
-            new InlineProgress<long>(position => Report(0, .45 * position / length, $"Scanning model headers · {position:N0}/{length:N0} bytes")), token);
-        var models = new List<ArchiveEntry>();
-        for (int i = 0; i < modelOffsets.Count; i++)
-        {
-            token.ThrowIfCancellationRequested();
-            models.AddRange(Rpf9ModelRecovery.RecoverAtOffsets(source, length, new[] { modelOffsets[i] }, models.Count, token));
-            if (i % 100 == 0) Report(0, .45 + .55 * i / Math.Max(1, modelOffsets.Count), $"Validating models · {i:N0}/{modelOffsets.Count:N0} candidates · {models.Count:N0} supported");
-            if (i > 0 && i % 1000 == 0) RecoveryIndexCache.Save("models", source, models,
-                $"Full page+16 scan completed; model validation in progress ({i:N0}/{modelOffsets.Count:N0}). Original RPF9 directory remains undecoded.");
-        }
-        RecoveryIndexCache.Save("models", source, models, $"Full {length:N0}-byte page+16 scan; {models.Count:N0} supported models; other layouts and original directory remain undecoded.");
+        int models = BuildModels(source, new InlineProgress<PayloadIndexProgress>(p => Report(0, p.Fraction, p.Message)), token);
 
         var textureOffsets = Rpf9TextureRecovery.FindCandidateOffsets(source, 0, null,
             new InlineProgress<long>(position => Report(1, .45 * position / length, $"Scanning texture headers · {position:N0}/{length:N0} bytes")), token);
@@ -49,8 +97,8 @@ public static class PayloadIndexBuilder
             new InlineProgress<long>(position => Report(3, (double)position / length, $"Scanning native shaders · {position:N0}/{length:N0} bytes")), token);
         token.ThrowIfCancellationRequested();
         RecoveryIndexCache.Save("shaders", source, shaders, $"Full {length:N0}-byte raw-wrapper scan; {shaders.Count:N0} validated native shader containers. Original directory remains undecoded.");
-        Report(3, 1, $"Index ready · {models.Count:N0} models · {textures.Count:N0} texture dictionaries · {audio.Count:N0} audio banks · {shaders.Count:N0} shaders");
-        return new(models.Count, textures.Count, audio.Count, shaders.Count);
+        Report(3, 1, $"Index ready · {models:N0} models · {textures.Count:N0} texture dictionaries · {audio.Count:N0} audio banks · {shaders.Count:N0} shaders");
+        return new(models, textures.Count, audio.Count, shaders.Count);
     }
     private sealed class InlineProgress<T>(Action<T> action) : IProgress<T> { public void Report(T value) => action(value); }
 }

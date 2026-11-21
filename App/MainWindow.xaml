@@ -2,10 +2,11 @@
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="clr-namespace:RpfPreview.App"
- Title="rpf9-explorer 1.0" Width="1500" Height="900" MinWidth="1150" MinHeight="700"
+ Title="rpf9-explorer 1.0.1" Width="1500" Height="900" MinWidth="1150" MinHeight="700"
  Background="#F3F3F3" Foreground="#202020" FontFamily="Segoe UI" FontSize="12"
  WindowStartupLocation="CenterScreen" AllowDrop="True" Drop="Window_Drop"
  DragOver="Window_DragOver" Loaded="Window_Loaded">
+ <Window.Resources><local:ModelAssemblySelectionConverter x:Key="ModelAssemblySelection"/></Window.Resources>
  <Window.InputBindings><KeyBinding Key="O" Modifiers="Control" Command="{Binding OpenCommand}"/><KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}"/></Window.InputBindings>
  <DockPanel>
   <Menu DockPanel.Dock="Top" Background="#FAFAFA" Padding="2">
@@ -71,6 +72,7 @@
       <StackPanel Orientation="Horizontal" Margin="0,6,0,0"><CheckBox x:Name="AvailableOnlyCheckBox" Content="Available only" IsChecked="False" Checked="AvailableOnly_Changed" Unchecked="AvailableOnly_Changed" VerticalAlignment="Center"/><CheckBox x:Name="SearchAllSourcesCheckBox" Content="Search all sources" IsChecked="True" Checked="AvailableOnly_Changed" Unchecked="AvailableOnly_Changed" VerticalAlignment="Center" Margin="14,0,0,0"/></StackPanel>
      </StackPanel>
      <DataGrid x:Name="FilesGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False" CanUserResizeRows="False" RowHeight="28" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#DDD" BorderThickness="0,1,0,0" Background="White" RowBackground="White" AlternatingRowBackground="#FAFAFA" RowHeaderWidth="0" SelectionMode="Extended" SelectionUnit="FullRow" SelectionChanged="FilesGrid_SelectionChanged" MouseDoubleClick="FilesGrid_DoubleClick" EnableRowVirtualization="True" EnableColumnVirtualization="True" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+      <DataGrid.ContextMenu><ContextMenu><MenuItem Header="Add selected model parts" Command="{Binding PlacementTarget.DataContext.AddModelPartsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/><MenuItem Header="Preview queued parts" Command="{Binding PlacementTarget.DataContext.PreviewModelPartsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/><MenuItem Header="Clear parts queue" Command="{Binding PlacementTarget.DataContext.ClearModelPartsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/><Separator/><MenuItem Header="Preview selected models together (experimental)" Click="PreviewTogether_Click" ToolTip="Select two or more model rows with Ctrl or Shift. Their source coordinates are retained."/></ContextMenu></DataGrid.ContextMenu>
       <DataGrid.RowStyle><Style TargetType="DataGridRow"><Setter Property="ToolTip" Value="{Binding EntryToolTip}"/><Style.Triggers><DataTrigger Binding="{Binding Entry.CanExtract}" Value="False"><Setter Property="Foreground" Value="#777777"/></DataTrigger></Style.Triggers></Style></DataGrid.RowStyle>
       <DataGrid.Columns>
        <DataGridTextColumn Header="Name" Binding="{Binding DisplayName}" Width="*" MinWidth="130"/>
@@ -92,7 +94,7 @@
       <TextBlock Text="Header information" FontWeight="SemiBold" Margin="0,0,0,8"/>
       <TextBlock x:Name="HeaderMetadataText" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"/>
      </StackPanel></ScrollViewer>
-     <Border Grid.Row="2" BorderBrush="#DDD" BorderThickness="0,1,0,0" Padding="8,5"><StackPanel><TextBlock x:Name="FileCountText" Text="0 files" Foreground="#606060"/><StackPanel x:Name="GalleryPaging" Orientation="Horizontal" Visibility="Collapsed" Margin="0,4,0,0"><Button Content="Previous" Click="PreviousImagePage_Click" Padding="8,2"/><TextBlock x:Name="ImagePageText" Text="" VerticalAlignment="Center" Margin="8,0"/><Button Content="Next" Click="NextImagePage_Click" Padding="8,2"/></StackPanel></StackPanel></Border>
+     <Border Grid.Row="2" BorderBrush="#DDD" BorderThickness="0,1,0,0" Padding="8,5"><StackPanel><TextBlock x:Name="FileCountText" Text="0 files" Foreground="#606060"/><WrapPanel Margin="0,5,0,0"><Button x:Name="PreviewTogetherButton" Content="Preview together" Click="PreviewTogether_Click" Padding="8,3" IsEnabled="{Binding SelectedItems.Count, ElementName=FilesGrid, Converter={StaticResource ModelAssemblySelection}}" ToolTip="Experimental static assembly of selected model components in their original coordinates"/><TextBlock Text="Ctrl-click model parts to combine" Foreground="#707070" FontSize="10" VerticalAlignment="Center" Margin="8,0,0,0"/></WrapPanel><WrapPanel Margin="0,5,0,0"><Button Content="Add selected parts" Command="{Binding AddModelPartsCommand}" Padding="7,3" ToolTip="Keep one or more selected model components while you search for additional parts"/><TextBlock x:Name="ModelPartsQueueCount" Text="Parts: 0 / 64" Foreground="#606060" FontSize="11" VerticalAlignment="Center" Margin="8,0"/><Button Content="Preview queued parts" Command="{Binding PreviewModelPartsCommand}" Padding="7,3" Margin="0,0,5,0"/><Button Content="Clear parts" Command="{Binding ClearModelPartsCommand}" Padding="7,3"/></WrapPanel><StackPanel x:Name="GalleryPaging" Orientation="Horizontal" Visibility="Collapsed" Margin="0,4,0,0"><Button Content="Previous" Click="PreviousImagePage_Click" Padding="8,2"/><TextBlock x:Name="ImagePageText" Text="" VerticalAlignment="Center" Margin="8,0"/><Button Content="Next" Click="NextImagePage_Click" Padding="8,2"/></StackPanel></StackPanel></Border>
     </Grid>
     <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" Background="#E5E5E5"/>
     <Grid Grid.Column="4" Background="White">
@@ -133,7 +135,7 @@
        </Grid>
       </TabItem>
       <TabItem x:Name="ModelTab" Header="Model" IsEnabled="False"><DockPanel>
-       <Button DockPanel.Dock="Bottom" Content="Export OBJ…" Click="ModelExport_Click" HorizontalAlignment="Right" Margin="7,2,7,6" Padding="9,3"/>
+       <StackPanel DockPanel.Dock="Bottom" Margin="7,2,7,6"><TextBlock x:Name="ModelAssemblyBanner" Visibility="Collapsed" TextWrapping="Wrap" Foreground="#68541E" Background="#FFF8DC" Padding="7" Margin="0,0,0,5"/><WrapPanel HorizontalAlignment="Right"><Button Content="Preview selected together" Click="PreviewTogether_Click" Padding="9,3" Margin="0,0,6,0" IsEnabled="{Binding SelectedItems.Count, ElementName=FilesGrid, Converter={StaticResource ModelAssemblySelection}}"/><Button Content="Export OBJ…" Click="ModelExport_Click" Padding="9,3"/></WrapPanel></StackPanel>
        <local:ModelViewport x:Name="ModelPreview"/>
       </DockPanel></TabItem>
       <TabItem x:Name="HexTab" Header="Hex"><TextBox x:Name="HexPreview" IsReadOnly="True" BorderThickness="0" FontFamily="Consolas" FontSize="11" Padding="10" TextWrapping="NoWrap" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"/></TabItem>

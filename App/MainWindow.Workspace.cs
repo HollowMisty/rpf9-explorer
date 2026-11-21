@@ -53,7 +53,7 @@ public partial class MainWindow
         _previewCancellation?.Cancel(); CancelThumbnails(); ClosePlayer();
         _workCancellation = new CancellationTokenSource(); var token = _workCancellation.Token;
         SetBusy(true, true); WorkProgress.IsIndeterminate = false; WorkProgress.Maximum = 1;
-        var errors = new List<string>();
+        var errors = new List<string>(); var discoveryWarnings = new List<string>();
         try
         {
             for (int i = 0; i < requested.Length; i++)
@@ -61,18 +61,39 @@ public partial class MainWindow
                 token.ThrowIfCancellationRequested();
                 string source = requested[i]; StatusText.Text = $"Loading source {i + 1:N0}/{requested.Length:N0} · {Path.GetFileName(source)}";
                 WorkProgress.Value = .8 * i / requested.Length;
-                try { loaded[source] = await Task.Run(() => ArchiveReader.Open(source), token); }
+                try
+                {
+                    var opened = await Task.Run(() => ArchiveReader.Open(source), token);
+                    if (opened.Format == "RPF9" && opened.HeaderBytes.AsSpan(0, 4).SequenceEqual("9FPR"u8))
+                    {
+                        int sourceIndex = i;
+                        var discovery = new Progress<PayloadIndexProgress>(p =>
+                        {
+                            WorkProgress.Value = .8 * (sourceIndex + p.Fraction) / requested.Length;
+                            StatusText.Text = Path.GetFileName(source) + " · " + p.Message;
+                        });
+                        try
+                        {
+                            await Task.Run(() => PayloadIndexBuilder.BuildModels(source, discovery, token), token);
+                            token.ThrowIfCancellationRequested();
+                            opened = await Task.Run(() => ArchiveReader.Open(source), token);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException or ArgumentException or OverflowException)
+                        { discoveryWarnings.Add(Path.GetFileName(source) + " · model discovery incomplete: " + ex.Message); }
+                    }
+                    loaded[source] = opened;
+                }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or NotSupportedException or ArgumentException or OverflowException)
                 { errors.Add(Path.GetFileName(source) + ": " + ex.Message); }
             }
             if (loaded.Count == 0) throw new InvalidDataException(string.Join(Environment.NewLine, errors.Take(5)));
             if (loaded.Count > 512) throw new InvalidDataException("Workspace source limit is 512.");
-            StatusText.Text = "Indexing image names and texture metadata…";
-            var progress = new Progress<WorkspaceIndexProgress>(p => { WorkProgress.Value = .8 + .2 * p.Completed / Math.Max(1, p.Total); StatusText.Text = $"Indexing image names · {p.Completed:N0}/{p.Total:N0} entries"; });
+            StatusText.Text = "Indexing model names and texture metadata…";
+            var progress = new Progress<WorkspaceIndexProgress>(p => { WorkProgress.Value = .8 + .2 * p.Completed / Math.Max(1, p.Total); StatusText.Text = $"Indexing assets · {p.Completed:N0}/{p.Total:N0} entries"; });
             var index = await Task.Run(() => AssetWorkspaceIndex.Build(loaded.Values, progress, token), token);
             token.ThrowIfCancellationRequested();
             if (append) _sessionProject?.AddSources(loaded.Keys);
-            if (!append) { _sourceProjects.Clear(); _sessionProject = null; }
+            if (!append) { _sourceProjects.Clear(); _sessionProject = null; ClearQueuedModelParts(); }
             _documents.Clear(); foreach (var pair in loaded) _documents.Add(pair.Key, pair.Value);
             _assetIndex = index;
             BuildLoadedTextureLookup();
@@ -89,8 +110,9 @@ public partial class MainWindow
             BuildWorkspaceTree(); _loading = false;
             RefreshReplacementAnnotations(); RefreshFiles(); ResetPreview(); UpdateWorkspaceHeader();
             _sessionProject?.Save(CurrentWorkspaceView());
-            StatusText.Text = $"Loaded {_documents.Count:N0} sources · {_allRows.Count(r => r.Asset?.IsImage == true):N0} images indexed" + (errors.Count > 0 ? $" · {errors.Count} sources unavailable" : "");
-            if (errors.Count + index.Warnings.Count > 0) { NoticeBorder.Visibility = Visibility.Visible; NoticeText.Text += $" · {errors.Count + index.Warnings.Count:N0} indexing notices (hover for details)"; NoticeText.ToolTip = string.Join(Environment.NewLine, errors.Concat(index.Warnings).Take(30)); }
+            StatusText.Text = $"Loaded {_documents.Count:N0} sources · {_allRows.Count(r => r.Asset?.Kind == "model"):N0} models · {_allRows.Count(r => r.Asset?.IsImage == true):N0} images indexed" + (errors.Count > 0 ? $" · {errors.Count} sources unavailable" : "");
+            if (discoveryWarnings.Count > 0) StatusText.Text += " · model discovery incomplete";
+            if (errors.Count + index.Warnings.Count + discoveryWarnings.Count > 0) { NoticeBorder.Visibility = Visibility.Visible; NoticeText.Text += $" · {errors.Count + index.Warnings.Count + discoveryWarnings.Count:N0} indexing notices (hover for details)"; NoticeText.ToolTip = string.Join(Environment.NewLine, errors.Concat(discoveryWarnings).Concat(index.Warnings).Take(30)); }
             return true;
         }
         catch (OperationCanceledException) { StatusText.Text = "Loading canceled · previously loaded workspace retained"; return false; }
@@ -119,7 +141,7 @@ public partial class MainWindow
         bool recovery = _documents.Values.Any(d => d.Format == "RPF9");
         NoticeBorder.Visibility = recovery ? Visibility.Visible : Visibility.Collapsed;
         NoticeText.Text = recovery ? "RPF9 payload recovery · original directories and archive rebuilding remain unavailable · edits save in separate projects" : "";
-        Title = (_sessionProject == null ? "rpf9-explorer 1.0" : Path.GetFileName(_sessionProject.ProjectPath) + " — rpf9-explorer 1.0");
+        Title = (_sessionProject == null ? "rpf9-explorer 1.0.1" : Path.GetFileName(_sessionProject.ProjectPath) + " · rpf9-explorer 1.0.1");
     }
 
     private void BuildWorkspaceTree()
@@ -266,6 +288,7 @@ public partial class MainWindow
     {
         if (_busy) return;
         _previewCancellation?.Cancel(); CancelThumbnails(); ClosePlayer();
+        ClearQueuedModelParts();
         _documents.Clear(); _sourceProjects.Clear(); _allRows = []; _assetIndex = null; _document = _scopeSource = null;
         _scopeContainer = null; _selectedFolder = null; _sessionProject = null; _replacementWorkspace = null; _shownReplacementTarget = null;
         _rows.Clear(); FolderTree.Items.Clear(); ImageGallery.ItemsSource = null;
