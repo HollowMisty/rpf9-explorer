@@ -222,31 +222,41 @@ public static class RageModelDecoder
                 Check(Drawable != 0 && LooksLikeDrawableHeader(sys[Drawable..], true));
             }
             if (U64(Drawable + 168) != 0) Name(Drawable + 168);
-            int lod = S(Drawable + 80, 16), models = U16(lod + 8);
-            Check(models is > 0 and <= 256 && models == U16(lod + 10));
-            int pointers = S(lod, models * 8), totalMeshes = 0;
-            var seenModels = new HashSet<int>(); var seenGeometry = new HashSet<int>();
-            for (int mi = 0; mi < models; mi++)
+            // Four LOD slots (+80 high, then +88, +96, +104). The first is required; the others are walked when set,
+            // so a drawable with lower LODs has all of its system and graphics data accounted for.
+            var seenLods = new HashSet<int>();
+            for (int slot = 80; slot <= 104; slot += 8)
             {
-                int model = S(pointers + mi * 8, 56), count = U16(model + 16);
-                Check(seenModels.Add(model) && count is > 0 and <= 256 && count == U16(model + 18) && count == U16(model + 54));
-                Check(U16(model + 20) <= 4096);
-                int geometries = S(model + 8, count * 8);
-                S(model + 24, checked((count + (count > 1 ? 1 : 0)) * 32));
-                if (U64(model + 40) != 0) S(model + 40, 1);
-                for (int i = 0; i < count; i++)
+                if (slot != 80 && U64(Drawable + slot) == 0) continue;
+                int lod = S(Drawable + slot, 16), models = U16(lod + 8);
+                if (!seenLods.Add(lod)) continue;
+                Check(models is > 0 and <= 256 && models == U16(lod + 10));
+                int pointers = S(lod, models * 8);
+                int totalMeshes = 0;
+                var seenModels = new HashSet<int>();
+                var seenGeometry = new HashSet<int>();
+                for (int mi = 0; mi < models; mi++)
                 {
-                    Check(++totalMeshes <= MaxMeshes);
-                    int geometry = S(geometries + i * 8, 160); Check(seenGeometry.Add(geometry));
-                    int vb = S(geometry + 8, 80), fvf = S(vb + 64, 320);
-                    uint flags = U32(fvf + 0x138); int vertices = checked((int)(flags >> 10));
-                    int size = sys[fvf + 0xD0], format = sys[fvf + 0x104];
-                    Check((flags & 1) != 0 && vertices is > 0 and <= 1_000_000 && ((size == 12 && format == 6) || (size == 8 && format == 16)));
-                    int bytes = checked((int)U32(vb + 8) * U16(vb + 12)), offset = checked((int)U32(fvf));
-                    Check(offset >= 96 && offset <= bytes && (long)vertices * size <= bytes - offset);
-                    Buffer(vb);
-                    int descriptor = S(geometry + 64, 16), ib = S(descriptor, 64);
-                    Check(U16(ib + 12) == 4); Buffer(ib);
+                    int model = S(pointers + mi * 8, 56), count = U16(model + 16);
+                    Check(seenModels.Add(model) && count is > 0 and <= MaxMeshes && count == U16(model + 18) && count == U16(model + 54));
+                    Check(U16(model + 20) <= 4096);
+                    int geometries = S(model + 8, count * 8);
+                    S(model + 24, checked((count + (count > 1 ? 1 : 0)) * 32));
+                    if (U64(model + 40) != 0) S(model + 40, 1);
+                    for (int i = 0; i < count; i++)
+                    {
+                        Check(++totalMeshes <= MaxMeshes);
+                        int geometry = S(geometries + i * 8, 160); Check(seenGeometry.Add(geometry));
+                        int vb = S(geometry + 8, 80), fvf = S(vb + 64, 320);
+                        uint flags = U32(fvf + 0x138); int vertices = checked((int)(flags >> 10));
+                        int size = sys[fvf + 0xD0], format = sys[fvf + 0x104];
+                        Check((flags & 1) != 0 && vertices is > 0 and <= 1_000_000 && ((size == 12 && format == 6) || (size == 8 && format == 16)));
+                        int bytes = checked((int)U32(vb + 8) * U16(vb + 12)), offset = checked((int)U32(fvf));
+                        Check(offset >= 96 && offset <= bytes && (long)vertices * size <= bytes - offset);
+                        Buffer(vb);
+                        int descriptor = S(geometry + 64, 16), ib = S(descriptor, 64);
+                        Check(U16(ib + 12) == 4); Buffer(ib);
+                    }
                 }
             }
             int shader = S(Drawable + 16, 64);
@@ -297,9 +307,12 @@ public static class RageModelDecoder
 
 
             byte[] temporary = sys.ToArray(); sys.Slice(dictionary, 64).CopyTo(temporary);
-            Check(RageTextureDecoder.TryGetRequiredGraphicsBytes(temporary, out int required));
-            Check(required is > 0 and <= MaxGraphicsBytes);
-            GraphicsEnd = Math.Max(GraphicsEnd, required);
+            // Texture decoding is optional for model geometry. Include the texture extent when it can be measured.
+            if (RageTextureDecoder.TryGetRequiredGraphicsBytes(temporary, out int required))
+            {
+                Check(required is > 0 and <= MaxGraphicsBytes);
+                GraphicsEnd = Math.Max(GraphicsEnd, required);
+            }
         }
     }
 
@@ -355,7 +368,7 @@ public static class RageModelDecoder
                 int model = S(list + mi * 8, 56);
                 Require(seenModels.Add(model));
                 int count = U16(sys, model + 16);
-                Require(count is > 0 and <= 256 && count == U16(sys, model + 18) && count == U16(sys, model + 54));
+                Require(count is > 0 and <= MaxMeshes && count == U16(sys, model + 18) && count == U16(sys, model + 54));
                 int boneCount = U16(sys, model + 20);
                 Require(boneCount <= 4096);
                 hasBoneBindings |= boneCount > 0;
@@ -373,8 +386,6 @@ public static class RageModelDecoder
                     var mesh = ReadMesh(geometry, $"model_{mi}_geometry_{gi}", partMin, partMax, boneCount);
                     if (shaderMapping is int mapping)
                         mesh = mesh with { ShaderIndex = U16(sys, mapping + gi * 2) };
-                    float tolerance = Tolerance(min, max);
-                    Require(Contains(min, max, partMin, tolerance) && Contains(min, max, partMax, tolerance));
                     meshes.Add(mesh);
                 }
             }
@@ -545,6 +556,7 @@ public static class RageModelDecoder
             int data = G(vb + 24, bufferLength);
             ReadOnlySpan<byte> vertex = gfx.Slice(data, bufferLength);
             var positions = new Vector3[vertexCount];
+            (Vector3 Min, Vector3 Max)? quantizedBounds = null;
             if (positionSize == 12 && format == 6)
             {
                 Require((U32(vertex, 0) & 127) == 0x63);
@@ -556,6 +568,8 @@ public static class RageModelDecoder
                 Vector3 bias = ReadVector(vertex, 96), scale = ReadVector(vertex, 112);
                 uint axis = U32(vertex, 108);
                 Require(axis <= 2 && Finite(bias) && Finite(scale) && scale.X >= 0 && scale.Y >= 0 && scale.Z >= 0);
+                var end = bias + scale * new Vector3(16777215, 16777215, 65535);
+                quantizedBounds = (ReorderPosition(bias, axis), ReorderPosition(end, axis));
                 for (int i = 0; i < vertexCount; i++)
                 {
                     ulong q = BinaryPrimitives.ReadUInt64LittleEndian(vertex.Slice(positionOffset + i * 8, 8));
@@ -565,7 +579,7 @@ public static class RageModelDecoder
                     var p = new Vector3((float)(bias.X + (double)scale.X * ((q >> 8) & 0xFFFFFF)),
                         (float)(bias.Y + (double)scale.Y * ((((q >> 32) & 0xFFFF) << 8) | (q & 0xFF))),
                         (float)(bias.Z + (double)scale.Z * (q >> 48)));
-                    positions[i] = axis switch { 0 => new(p.Z, p.Y, p.X), 1 => new(p.Y, p.Z, p.X), _ => p };
+                    positions[i] = ReorderPosition(p, axis);
                 }
             }
             else throw new InvalidDataException("Unsupported position encoding.");
@@ -583,11 +597,13 @@ public static class RageModelDecoder
             int clusterCount = checked((int)(countFlags & (bonePalette ? 0xFFFFU : 0x7FFFFFFFU)));
             int triangles = checked((int)U32(index, 4)), refs = checked((int)U32(index, 8));
             uint binding = U32(sys, descriptor + 12);
+            // Some 16-bit-reference buffers declare their bone palette only in the index header.
+            bool paletteWithoutMarker = (binding & 255) == 0 && (countFlags & 0xFFFF0000) == 0xC0000000U;
             Require(clusterCount is > 0 and <= 2048 && triangles is > 0 and <= 65535 && refs is > 0 and <= 65535 &&
                 clusterCount == U16(sys, descriptor + 8) && triangles == U16(sys, descriptor + 10) &&
                 refs == ((binding >> 8) & 0x7FFFFF) && ((binding & 0x80000000) != 0) == bonePalette &&
-                (!bonePalette || (binding & 255) == 0x80U));
-            Require(!bonePalette || boneCount > 0);
+                (!bonePalette || (binding & 255) == 0x80U || paletteWithoutMarker));
+            // A palette can refer to an external skeleton when the local bone count is zero.
             hasBoneBindings |= bonePalette;
             totalTriangles = checked(totalTriangles + triangles); Require(totalTriangles <= MaxTotalTriangles);
             int refSize = (countFlags & 0x80000000) != 0 ? 2 : 4;
@@ -596,16 +612,15 @@ public static class RageModelDecoder
             int paletteAt = checked(refsAt + refs * refSize);
             int meaningfulEnd = checked(paletteAt + (bonePalette ? clusterCount * 2 : 0));
             Require(meaningfulEnd <= indexLength);
-            Require(((meaningfulEnd + 15) & ~15) == indexLength && index[meaningfulEnd..].IndexOfAnyExcept((byte)0) < 0);
             if (bonePalette)
             {
                 uint hint = (countFlags >> 16) & 0x1FFF;
                 bool constantBinding = (countFlags & 0x20000000) != 0;
-                Require(constantBinding ? (hint & 1) == 0 && hint / 2 < boneCount : hint == 0);
+                Require(constantBinding ? (hint & 1) == 0 && (boneCount == 0 || hint / 2 < boneCount) : hint == 0);
                 for (int i = 0; i < clusterCount; i++)
                 {
                     ushort bone = U16(index, paletteAt + i * 2);
-                    Require(bone == ushort.MaxValue || bone < boneCount);
+                    Require(bone == ushort.MaxValue || boneCount == 0 || bone < boneCount);
                     if (constantBinding) Require(bone == hint / 2);
                 }
             }
@@ -641,13 +656,26 @@ public static class RageModelDecoder
             }
             Require(accumulatedRefs == refs && accumulatedTriangles == triangles);
             float tolerance = Tolerance(boundMin, boundMax);
-            Require(Vector3.Abs(actualMin - boundMin).X <= tolerance && Vector3.Abs(actualMin - boundMin).Y <= tolerance &&
-                Vector3.Abs(actualMin - boundMin).Z <= tolerance && Vector3.Abs(actualMax - boundMax).X <= tolerance &&
-                Vector3.Abs(actualMax - boundMax).Y <= tolerance && Vector3.Abs(actualMax - boundMax).Z <= tolerance);
+            // Packed positions can differ from the recorded mesh bounds by 0.01 model units. When the quantizer
+            // domain itself matches the recorded bounds, the vertices can also occupy only part of that domain.
+            float fitTolerance = quantizedBounds.HasValue ? Math.Max(tolerance, 0.01001f) : tolerance;
+            bool tightBounds = Close(actualMin, boundMin, fitTolerance) && Close(actualMax, boundMax, fitTolerance);
+            bool conservativeBounds = quantizedBounds is { } range && Close(range.Min, boundMin, tolerance) &&
+                Close(range.Max, boundMax, tolerance) && Contains(boundMin, boundMax, actualMin, tolerance) &&
+                Contains(boundMin, boundMax, actualMax, tolerance);
+            Require(tightBounds || conservativeBounds);
             return new(name, positions, indices) { TexCoords = ReadTexCoords(fvf, vertexCount, vertex), VertexColors = ReadVertexColors(fvf, vertexCount, vertex) };
         }
 
+        private static Vector3 ReorderPosition(Vector3 position, uint axis) =>
+            axis switch { 0 => new(position.Z, position.Y, position.X), 1 => new(position.Y, position.Z, position.X), _ => position };
+
         private static float Tolerance(Vector3 min, Vector3 max) => 0.002f + Math.Max(max.X - min.X, Math.Max(max.Y - min.Y, max.Z - min.Z)) * 0.00001f;
+        private static bool Close(Vector3 a, Vector3 b, float tolerance)
+        {
+            Vector3 delta = Vector3.Abs(a - b);
+            return delta.X <= tolerance && delta.Y <= tolerance && delta.Z <= tolerance;
+        }
         private static bool Contains(Vector3 min, Vector3 max, Vector3 p, float tolerance) =>
             p.X >= min.X - tolerance && p.X <= max.X + tolerance && p.Y >= min.Y - tolerance && p.Y <= max.Y + tolerance &&
             p.Z >= min.Z - tolerance && p.Z <= max.Z + tolerance;
