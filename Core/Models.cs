@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace RpfPreview.Core;
 
 public sealed record ArchiveEntry(string Path, long StoredSize, long Size, long Offset,
@@ -15,7 +17,11 @@ public sealed record ArchiveEntry(string Path, long StoredSize, long Size, long 
 
 public sealed record ExtractionProgress(string CurrentFile, int CompletedFiles, int TotalFiles, long BytesCopied);
 public sealed record VideoInfo(int Width, int Height, double FramesPerSecond, double DurationSeconds, int Frames, int AudioTracks);
-public sealed record ArchiveSegment(long Offset, long StoredSize, long Size);
+public sealed record ArchiveSegment(long Offset, long StoredSize, long Size)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsRaw { get; init; }
+}
 
 public sealed class ArchiveDocument
 {

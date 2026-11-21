@@ -14,7 +14,9 @@ public static class Rpf9ModelRecovery
     public const int MaxRecoveredModels = 4096;
     public const long DecodeBudget = 1024L * 1024 * 1024;
     private const int ScanBlock = 4 * 1024 * 1024;
-    private sealed record Block(long Offset, long Packed, byte[] Data);
+    private const int RawSystemTailBytes = 16;
+    private const int RawGraphicsTailBytes = 48;
+    private sealed record Block(long Offset, long Packed, byte[] Data, bool IsRaw = false);
 
 
 
@@ -88,7 +90,10 @@ public static class Rpf9ModelRecovery
             string safeName = SafeName(model.Name);
             long stored = 0, decoded = 0; var segments = new List<ArchiveSegment>(blocks.Count);
             foreach (var block in blocks)
-            { stored = checked(stored + block.Packed); decoded = checked(decoded + block.Data.Length); segments.Add(new(block.Offset, block.Packed, block.Data.Length)); }
+            {
+                stored = checked(stored + block.Packed); decoded = checked(decoded + block.Data.Length);
+                segments.Add(new ArchiveSegment(block.Offset, block.Packed, block.Data.Length) { IsRaw = block.IsRaw });
+            }
             entries.Add(new($"recovered/models/{safeName}_at_{candidate:X16}.r9modeldata", stored,
                 decoded, candidate, false, false, false,
                 "Recovered model", checked(firstIndex + entries.Count))
@@ -108,9 +113,13 @@ public static class Rpf9ModelRecovery
         while (blocks.Count <= 64)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (TrySplit(blocks, total, cancellationToken, out systemLength, out model, out bool needsMore)) return true;
+            // A raw system tail is provisional until the following zlib block has inflated successfully.
+            bool needsMore = true;
+            if (!(blocks[^1].IsRaw && blocks[^1].Data.Length == RawSystemTailBytes) &&
+                TrySplit(blocks, total, cancellationToken, out systemLength, out model, out needsMore)) return true;
             if (!needsMore || blocks.Count == 64 || total >= maximum ||
-                !TryNext(file, blocks, maximum - total, ref budget, out var next)) return false;
+                (!TryNext(file, blocks, maximum - total, ref budget, out var next) &&
+                 !TryRawTail(file, blocks, total, ref budget, out next))) return false;
             blocks.Add(next); total = checked(total + next.Data.Length);
         }
         return false;
@@ -129,15 +138,13 @@ public static class Rpf9ModelRecovery
             RageModelExtent? extent = RageModelDecoder.ProbeRequiredExtents(system);
             if (extent is null) continue;
             if (!extent.MetadataComplete) { needsMore = true; continue; }
-            if (extent.RequiredSystemBytes > prefixLength ||
-                system.AsSpan(extent.RequiredSystemBytes).IndexOfAnyExcept((byte)0) >= 0) continue;
+            if (extent.RequiredSystemBytes > prefixLength) continue;
             int graphicsLength = total - prefixLength;
             if (graphicsLength < extent.RequiredGraphicsBytes) { needsMore = true; continue; }
             if (graphicsLength > RageModelDecoder.MaxGraphicsBytes) continue;
             byte[] graphics = Join(blocks, split, blocks.Count, graphicsLength);
-
-
-            if (graphics.AsSpan(extent.RequiredGraphicsBytes).IndexOfAnyExcept((byte)0) >= 0) continue;
+            // Other structures, such as skeletons and fragment physics, can extend beyond the walked ranges.
+            // Validate the split with the mesh's cluster tables and vertex bounds.
             RageModel? decoded = RageModelDecoder.Decode(system, graphics);
             if (decoded is null) continue;
             systemLength = prefixLength; model = decoded; return true;
@@ -164,6 +171,66 @@ public static class Rpf9ModelRecovery
         block = new(0, 0, []);
         long end = checked(blocks[^1].Offset + blocks[^1].Packed), next = (end + 15) & ~15L;
         return ZeroPadding(file, end, next) && TryInflate(file, next, maximum, ref budget, out block);
+    }
+
+    private static bool TryRawTail(FileStream file, List<Block> blocks, int total, ref long budget, out Block block)
+    {
+        block = new(0, 0, []);
+        if (blocks[^1].IsRaw || (blocks[^1].Data.Length & 0xFFFF) != 0) return false;
+        long end = checked(blocks[^1].Offset + blocks[^1].Packed), next = (end + 15) & ~15L;
+        if (!ZeroPadding(file, end, next)) return false;
+        Span<byte> header = stackalloc byte[2];
+        file.Position = next;
+        file.ReadExactly(header);
+        if (ZlibHeader(header)) return false;
+
+        // A small raw metadata remainder is followed immediately by a validated zlib stream.
+        if (total <= RageModelDecoder.MaxSystemBytes - RawSystemTailBytes && next <= file.Length - RawSystemTailBytes - 2)
+        {
+            byte[] system = Join(blocks, 0, blocks.Count, total);
+            var incomplete = RageModelDecoder.ProbeRequiredExtents(system);
+            if (incomplete is { MetadataComplete: false } && incomplete.RequiredSystemBytes > total &&
+                incomplete.RequiredSystemBytes - total <= RawSystemTailBytes)
+            {
+                file.Position = next + RawSystemTailBytes;
+                file.ReadExactly(header);
+                if (ZlibHeader(header) && budget <= DecodeBudget - RawSystemTailBytes)
+                {
+                    file.Position = next;
+                    byte[] tail = new byte[RawSystemTailBytes];
+                    file.ReadExactly(tail);
+                    byte[] combined = [.. system, .. tail];
+                    if (RageModelDecoder.ProbeRequiredExtents(combined) is { MetadataComplete: true })
+                    {
+                        budget += RawSystemTailBytes;
+                        block = new(next, RawSystemTailBytes, tail, true);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Read exactly the remaining geometry extent, only accepting a tail that decodes as part of the model.
+        int prefixLength = 0;
+        for (int split = 1; split < blocks.Count && split <= 32; split++)
+        {
+            prefixLength += blocks[split - 1].Data.Length;
+            if (prefixLength > RageModelDecoder.MaxSystemBytes) break;
+            byte[] system = Join(blocks, 0, split, prefixLength);
+            if (RageModelDecoder.ProbeRequiredExtents(system) is not { MetadataComplete: true } extent) continue;
+            int graphicsLength = total - prefixLength;
+            int remaining = extent.RequiredGraphicsBytes - graphicsLength;
+            if (remaining != RawGraphicsTailBytes || next > file.Length - remaining || budget > DecodeBudget - remaining) continue;
+            file.Position = next;
+            byte[] tail = new byte[remaining];
+            file.ReadExactly(tail);
+            byte[] graphics = [.. Join(blocks, split, blocks.Count, graphicsLength), .. tail];
+            if (RageModelDecoder.Decode(system, graphics) is null) continue;
+            budget += remaining;
+            block = new(next, remaining, tail, true);
+            return true;
+        }
+        return false;
     }
 
     private static bool LooksLikeSystem(byte[] bytes, int offset, int length, bool fragmentsOnly)

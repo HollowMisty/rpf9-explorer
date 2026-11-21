@@ -15,7 +15,7 @@ internal sealed class ZlibSegmentsStream : Stream
     internal ZlibSegmentsStream(IReadOnlyList<ArchiveSegment> segments, Func<ArchiveSegment, Stream> open, IDisposable? owner = null)
     {
         _segments = segments.ToArray(); _open = open; _owner = owner;
-        if (_segments.Any(s => s.Offset < 0 || s.StoredSize < 6 || s.Size < 0))
+        if (_segments.Any(s => s.Offset < 0 || s.StoredSize < 6 || s.Size < 0 || (s.IsRaw && s.StoredSize != s.Size)))
             throw new InvalidDataException("Invalid recovered compression-block descriptor.");
     }
     public override bool CanRead => true;
@@ -27,7 +27,8 @@ internal sealed class ZlibSegmentsStream : Stream
     private bool EnsureCurrent()
     {
         if (_index >= _segments.Length) return false;
-        _current ??= new ZLibStream(_open(_segments[_index]), CompressionMode.Decompress);
+        var segment = _segments[_index];
+        _current ??= segment.IsRaw ? _open(segment) : new ZLibStream(_open(segment), CompressionMode.Decompress);
         return true;
     }
     private void CompleteBlock()
