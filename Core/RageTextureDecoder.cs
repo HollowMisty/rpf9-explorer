@@ -445,10 +445,10 @@ public static class RageTextureDecoder
     private static int Align(int value, int boundary) => checked((value + boundary - 1) / boundary * boundary);
     private static int ElementBytes(int format) => format switch
     { 61 or 65 => 1, 49 or 54 or 56 => 2, 24 or 28 or 29 or 34 or 41 or 87 or 88 or 91 or 93 => 4,
-        10 or 71 or 72 or 80 or 81 => 8, 74 or 75 or 77 or 78 or 83 or 84 or 95 or 96 or 98 or 99 => 16,
+        10 or 11 or 71 or 72 or 80 or 81 => 8, 74 or 75 or 77 or 78 or 83 or 84 or 95 or 96 or 98 or 99 => 16,
         _ => throw new InvalidDataException("Unsupported BC format.") };
     private static string FormatName(int format) => format switch
-    { 10 => "R16G16B16A16_FLOAT", 24 => "R10G10B10A2_UNORM", 28 => "R8G8B8A8_UNORM", 29 => "R8G8B8A8_UNORM_SRGB",
+    { 10 => "R16G16B16A16_FLOAT", 11 => "R16G16B16A16_UNORM", 24 => "R10G10B10A2_UNORM", 28 => "R8G8B8A8_UNORM", 29 => "R8G8B8A8_UNORM_SRGB",
         34 => "R16G16_FLOAT", 41 => "R32_FLOAT", 49 => "R8G8_UNORM", 54 => "R16_FLOAT", 56 => "R16_UNORM",
         61 => "R8_UNORM", 65 => "A8_UNORM", 87 => "B8G8R8A8_UNORM", 88 => "B8G8R8X8_UNORM", 91 => "B8G8R8A8_UNORM_SRGB", 93 => "B8G8R8X8_UNORM_SRGB",
         71 => "BC1_UNORM", 72 => "BC1_UNORM_SRGB", 74 => "BC2_UNORM", 75 => "BC2_UNORM_SRGB",
@@ -476,6 +476,12 @@ public static class RageTextureDecoder
                 case 10:
                     r = Quantize((double)BitConverter.UInt16BitsToHalf(U16(data, p))); g = Quantize((double)BitConverter.UInt16BitsToHalf(U16(data, p + 2)));
                     b = Quantize((double)BitConverter.UInt16BitsToHalf(U16(data, p + 4))); a = Quantize((double)BitConverter.UInt16BitsToHalf(U16(data, p + 6))); break;
+                case 11:
+                    r = Quantize(U16(data, p) / 65535.0);
+                    g = Quantize(U16(data, p + 2) / 65535.0);
+                    b = Quantize(U16(data, p + 4) / 65535.0);
+                    a = Quantize(U16(data, p + 6) / 65535.0);
+                    break;
                 case 24:
                     uint packed = U32(data, p); r = Quantize((packed & 1023) / 1023.0); g = Quantize(((packed >> 10) & 1023) / 1023.0);
                     b = Quantize(((packed >> 20) & 1023) / 1023.0); a = (byte)((packed >> 30) * 85); break;
