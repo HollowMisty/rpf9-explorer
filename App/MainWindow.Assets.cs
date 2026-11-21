@@ -81,24 +81,39 @@ public partial class MainWindow
         var texture = pool.Textures.Single(t => t.Index == entry.Index);
         _ttpfInfo = pool; _ttpfTextureIndex = texture.Index;
         TextTab.Header = "Details";
-        string exportSize = texture.CanExtract ? $"{texture.ExportWidth:N0} × {texture.ExportHeight:N0}" : "Unavailable";
+        string sourceSize = texture.Dimension == 3 ? $"{texture.Width:N0} × {texture.Height:N0} × {texture.Depth:N0}" : $"{texture.Width:N0} × {texture.Height:N0}";
+        string exportSize = !texture.CanExtract ? "Unavailable" : texture.Dimension == 3 ? $"{texture.ExportWidth:N0} × {texture.ExportHeight:N0} × {texture.ExportDepth:N0}" : $"{texture.ExportWidth:N0} × {texture.ExportHeight:N0}";
         string exportedMips = texture.CanExtract ? $"{texture.BaseMipLevel} through {texture.BaseMipLevel + texture.Mips - 1}" : "Unavailable";
-        TextPreview.Text = $"Native streaming texture\n\nSource: {texture.Width:N0} × {texture.Height:N0} · {texture.Format}\nDDS export: {exportSize}\nSource mip levels: {texture.SourceMips}\nExported source mip levels: {exportedMips}\nVirtual offset: 0x{texture.VirtualOffset:X}\nNative asset key: {texture.AssetKey:X16}\nOpaque metadata token: {texture.Id}\n\nGenerated filenames are not original archive names. Exact native asset keys resolve supported model texture references. Export DDS and Extract selected both create a standard, detiled DDS file using the available mip levels.\n\n{texture.PreviewNote}";
+        string shapeSuffix = texture.Dimension != 1 || texture.Depth > 1 ? $" · {texture.Shape}" : "";
+        TextPreview.Text = $"Native streaming texture\n\nSource: {sourceSize} · {texture.Format}{shapeSuffix}\nDDS export: {exportSize}\nSource mip levels: {texture.SourceMips}\nExported source mip levels: {exportedMips}\nVirtual offset: 0x{texture.VirtualOffset:X}\nNative asset key: {texture.AssetKey:X16}\nOpaque metadata token: {texture.Id}\n\nGenerated filenames are not original archive names. Exact native asset keys resolve supported model texture references. Export DDS and Extract selected both create a standard, detiled DDS file using the available mip levels.\n\n{texture.PreviewNote}";
         AssetSelectorBar.Visibility = Visibility.Visible;
         _loadingAssetChoice = true;
-        AssetSelector.ItemsSource = new[] { new AssetChoice(texture.Index, $"{texture.ExportWidth} × {texture.ExportHeight} · {texture.Format}" + (texture.BaseMipLevel > 0 ? $" · source mip {texture.BaseMipLevel}" : "")) };
+        AssetSelector.ItemsSource = new[] { new AssetChoice(texture.Index, $"{texture.ExportWidth} × {texture.ExportHeight} · {texture.Format}{shapeSuffix}" + (texture.BaseMipLevel > 0 ? $" · source mip {texture.BaseMipLevel}" : "")) };
         AssetSelector.SelectedIndex = 0; _loadingAssetChoice = false;
-        AssetSliceSelector.Visibility = Visibility.Collapsed;
+        _loadingTextureSlice = true;
+        int sliceCount = texture.CanPreview ? (texture.Dimension == 3 ? Math.Max(1, texture.Depth >> texture.PreviewMipLevel) : texture.Depth) : 0;
+        AssetSliceSelector.ItemsSource = sliceCount > 1
+            ? Enumerable.Range(0, sliceCount).Select(i => texture.Dimension == 2 ? $"Cube {i / 6 + 1}, face {i % 6 + 1}" : $"Slice {i + 1} of {sliceCount}").ToArray()
+            : null;
+        AssetSliceSelector.SelectedIndex = sliceCount > 1 ? 0 : -1;
+        AssetSliceSelector.Visibility = sliceCount > 1 ? Visibility.Visible : Visibility.Collapsed;
+        _loadingTextureSlice = false;
         AssetExportButton.Content = "Export DDS…"; AssetExportButton.IsEnabled = texture.CanExtract;
-        AssetExportButton.ToolTip = texture.PartialMips ? $"Export {texture.ExportWidth} × {texture.ExportHeight}, starting at source mip {texture.BaseMipLevel}. Unsupported source mip levels are not included." : "Export the validated native texture as DDS";
-        PreviewMetaText.Text = $"{texture.ExportWidth:N0} × {texture.ExportHeight:N0} DDS · {texture.Format} · {texture.Mips} exported mip levels" + (texture.BaseMipLevel > 0 ? $" · source mip {texture.BaseMipLevel}, original {texture.Width} × {texture.Height}" : "");
+        AssetExportButton.ToolTip = texture.PartialMips ? $"Export {exportSize}, starting at source mip {texture.BaseMipLevel}. Unsupported source mip levels are not included." : "Export the validated native texture as DDS";
+        PreviewMetaText.Text = $"{exportSize} DDS · {texture.Format} · {texture.Mips} exported mip levels{shapeSuffix}" + (texture.BaseMipLevel > 0 ? $" · source mip {texture.BaseMipLevel}, original {sourceSize}" : "");
         if (!texture.CanPreview)
         {
             PreviewFootnoteText.Text = texture.Limitation ?? "DDS export is available; this format cannot be displayed yet.";
             return;
         }
-        var pixels = await Task.Run(() => TtpfReader.DecodeTexturePixels(document.SourcePath, texture.Index, cancellationToken: token), token);
-        if (token.IsCancellationRequested || _ttpfInfo != pool) return;
+        await ShowTtpfSliceAsync(pool, texture, token);
+    }
+
+    private async Task ShowTtpfSliceAsync(TtpfInfo pool, TtpfTextureInfo texture, CancellationToken token)
+    {
+        int slice = Math.Max(0, AssetSliceSelector.SelectedIndex), version = ++_textureRequestVersion;
+        var pixels = await Task.Run(() => TtpfReader.DecodeTexturePixels(pool.SourcePath, texture.Index, slice, token), token);
+        if (token.IsCancellationRequested || _ttpfInfo != pool || _ttpfTextureIndex != texture.Index || version != _textureRequestVersion) return;
         var bitmap = BitmapSource.Create(pixels.Width, pixels.Height, 96, 96, PixelFormats.Bgra32, null, pixels.Bgra32, pixels.Width * 4);
         bitmap.Freeze(); ImagePreview.Source = bitmap;
         ImageTab.Header = "Texture"; ImageTab.IsEnabled = true; PreviewTabs.SelectedItem = ImageTab;
@@ -298,9 +313,20 @@ public partial class MainWindow
     }
     private async void AssetSliceSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_loadingTextureSlice || _textureDictionary == null || _selectedTextureIndex < 0) return;
+        if (_loadingTextureSlice) return;
         var token = _previewCancellation?.Token ?? CancellationToken.None;
-        try { _activePreview = ShowTextureAsync(_selectedTextureIndex, token); await _activePreview; }
+        try
+        {
+            if (_ttpfInfo != null && _ttpfTextureIndex >= 0)
+            {
+                _activePreview = ShowTtpfSliceAsync(_ttpfInfo, _ttpfInfo.Textures.Single(t => t.Index == _ttpfTextureIndex), token);
+                await _activePreview;
+                return;
+            }
+            if (_textureDictionary == null || _selectedTextureIndex < 0) return;
+            _activePreview = ShowTextureAsync(_selectedTextureIndex, token);
+            await _activePreview;
+        }
         catch (OperationCanceledException) { }
         catch (Exception ex) { if (!token.IsCancellationRequested) PreviewFootnoteText.Text = ex.Message; }
     }

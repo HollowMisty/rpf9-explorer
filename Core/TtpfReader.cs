@@ -14,6 +14,8 @@ public sealed record TtpfTextureInfo(int Index, string Name, int Width, int Heig
     public int BaseMipLevel { get; init; }
     public int ExportWidth => Math.Max(1, Width >> BaseMipLevel);
     public int ExportHeight => Math.Max(1, Height >> BaseMipLevel);
+    public int ExportDepth => Dimension == 3 ? Math.Max(1, Depth >> BaseMipLevel) : Depth;
+    public string Shape => Dimension == 3 ? $"3D volume ({Depth} slices)" : Dimension == 2 ? (Depth == 6 ? "Cube map" : $"Cube array ({Depth / 6} cubes)") : Depth > 1 ? $"2D array ({Depth} slices)" : "2D";
 
     public ulong AssetKey { get; init; }
 
@@ -53,6 +55,12 @@ public static class TtpfReader
     internal sealed record Layout(int Size, int BlockWidth, int BlockHeight, int FirstTail, int ElementBytes, IReadOnlyList<Mip> Mips)
     {
         public int TileBytes { get; init; } = 65536;
+        public int SliceBytes { get; init; }
+        public int DataOffset { get; init; }
+        public int BlockDepth { get; init; } = 1;
+        public int ZBlockStride { get; init; }
+        public bool MipMajorSlices { get; init; }
+        public bool Volume { get; init; }
     }
     internal sealed record Native(TtpfTextureInfo Info, Layout? Layout);
     internal sealed record Index(TtpfInfo Info, IReadOnlyList<Chunk> Chunks, IReadOnlyList<Native> Native);
@@ -68,6 +76,12 @@ public static class TtpfReader
         [0,0,1,2,-1,-2,-3,3,-4,4,-5,5],
         [0,0,0,1,-1,-2,2,3,-3,4,-4,5],
         [0,0,0,0,-1,-2,1,2,-3,3,-4,4]];
+    private static readonly int[][] VolumePatterns = [
+        [1,2,101,-1,102,-2,3,103,-3,4,104,-4],
+        [0,1,101,-1,102,-2,2,103,-3,3,104,-4],
+        [0,0,1,-1,101,-2,2,102,-3,3,103,-4],
+        [0,0,0,1,101,-1,2,102,-2,3,103,-3],
+        [0,0,0,0,101,-1,1,102,-2,2,103,-3]];
 
     public static TtpfInfo Inspect(string path, CancellationToken cancellationToken = default) => ReadIndex(path, cancellationToken).Info;
 
@@ -84,7 +98,7 @@ public static class TtpfReader
         if ((long)width * height > 16 * 1024 * 1024) throw new NotSupportedException("No bounded thumbnail mip is available.");
         using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (input.Length != source.Info.SourceLength) throw new IOException("Texture pool changed.");
-        byte[] linear = ReadMip(input, source, native, level, new(), cancellationToken);
+        byte[] linear = ReadMip(input, source, native, level, 0, new(), cancellationToken);
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, width, height, t.DxgiFormat);
     }
 
@@ -97,27 +111,41 @@ public static class TtpfReader
         var cache = new Dictionary<int, byte[]>();
         using var output = new MemoryStream(checked((int)t.DdsSize));
         using var writer = new BinaryWriter(output, Encoding.UTF8, true);
-        bool bc = RageTextureDecoder.IsBlockCompressed(t.DxgiFormat);
-        writer.Write("DDS "u8); writer.Write(124); writer.Write(bc ? 0xA1007 : 0x2100F);
+        bool bc = RageTextureDecoder.IsBlockCompressed(t.DxgiFormat), volume = t.Dimension == 3, cube = t.Dimension == 2;
+        writer.Write("DDS "u8); writer.Write(124); writer.Write((bc ? 0xA1007 : 0x2100F) | (volume ? 0x800000 : 0));
         writer.Write(t.ExportHeight); writer.Write(t.ExportWidth);
         writer.Write(bc ? LinearBytes(layout.Mips[t.BaseMipLevel], layout.ElementBytes) : t.ExportWidth * layout.ElementBytes);
-        writer.Write(0); writer.Write(t.Mips); writer.Write(new byte[44]);
+        writer.Write(volume ? t.ExportDepth : 0); writer.Write(t.Mips); writer.Write(new byte[44]);
         writer.Write(32); writer.Write(4); writer.Write(0x30315844); writer.Write(new byte[20]);
-        writer.Write(t.Mips > 1 ? 0x401008 : 0x1000); writer.Write(new byte[16]);
-        writer.Write(t.DxgiFormat); writer.Write(3); writer.Write(0); writer.Write(1); writer.Write(0);
-        for (int mip = t.BaseMipLevel; mip < t.BaseMipLevel + t.Mips; mip++) writer.Write(ReadMip(input, source, native, mip, cache, cancellationToken));
+        writer.Write((t.Mips > 1 ? 0x401008 : 0x1000) | (volume || cube || t.Depth > 1 ? 8 : 0));
+        writer.Write(volume ? 0x200000 : cube ? 0xFE00 : 0); writer.Write(new byte[12]);
+        writer.Write(t.DxgiFormat); writer.Write(volume ? 4 : 3); writer.Write(cube ? 4 : 0);
+        writer.Write(volume ? 1 : cube ? t.Depth / 6 : t.Depth); writer.Write(0);
+        if (volume)
+        {
+            for (int mip = t.BaseMipLevel; mip < t.BaseMipLevel + t.Mips; mip++)
+                for (int z = 0; z < Math.Max(1, t.Depth >> mip); z++)
+                    writer.Write(ReadMip(input, source, native, mip, z, cache, cancellationToken));
+        }
+        else
+        {
+            for (int slice = 0; slice < t.Depth; slice++)
+                for (int mip = t.BaseMipLevel; mip < t.BaseMipLevel + t.Mips; mip++)
+                    writer.Write(ReadMip(input, source, native, mip, slice, cache, cancellationToken));
+        }
         if (output.Length != t.DdsSize) throw new InvalidDataException("Generated DDS length disagrees with the inspected texture.");
         return output.ToArray();
     }
 
     public static RageTexturePixels DecodeTexturePixels(string path, int index, int slice = 0, CancellationToken cancellationToken = default)
     {
-        if (slice != 0) throw new NotSupportedException("This TTPF reader currently previews supported 2D textures only.");
         var source = ReadIndex(path, cancellationToken); var native = Select(source, index); var t = native.Info;
+        int sliceCount = t.Dimension == 3 ? Math.Max(1, t.Depth >> t.PreviewMipLevel) : t.Depth;
+        if ((uint)slice >= sliceCount) throw new ArgumentOutOfRangeException(nameof(slice));
         if (!t.CanPreview) throw new NotSupportedException(t.Limitation ?? "No supported mip fits the preview output limit.");
         using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (input.Length != source.Info.SourceLength) throw new IOException("The texture pool changed while it was being read.");
-        byte[] linear = ReadMip(input, source, native, t.PreviewMipLevel, new(), cancellationToken);
+        byte[] linear = ReadMip(input, source, native, t.PreviewMipLevel, slice, new(), cancellationToken);
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, t.PreviewWidth, t.PreviewHeight, t.DxgiFormat);
     }
 
@@ -172,7 +200,7 @@ public static class TtpfReader
             uint a = U32(records, p), b = U32(records, p + 4), c = U32(records, p + 8), d = U32(records, p + 12);
             int nonTail = (int)(b & 7), packedMips = (int)(a >> 28), mode = (int)(b >> 23);
             int width = (int)(a & 0x3FFF) + 1, height = (int)((a >> 14) & 0x3FFF) + 1, mips = packedMips + nonTail,
-                format = (int)((b >> 3) & 255), depth = (int)((b >> 11) & 1023) + 1, dimension = (int)((b >> 21) & 3);
+                format = (int)((b >> 3) & 0x7F), depth = (int)((b >> 10) & 0x7FF) + 1, dimension = (int)((b >> 21) & 3);
             long baseOffset = (long)(c & 0x1FFFFFUL) * 4096;
             string id = Convert.ToHexString(ids.AsSpan(i * 32, 32));
             int keyAt = checked(textures * 16 + i * 8);
@@ -181,18 +209,11 @@ public static class TtpfReader
             bool legacyTopOnlyName = LegacyTopOnlyName(width, height, format, packedMips + 1, b, c, d, paddedMetadata, virtualSize, chunks);
             bool auxiliaryMapping = (c >> 21) != 0 || d != 0;
             string? limitation = null; Layout? layout = null; int exported = 0, baseMip = 0;
-            bool readOnlyProfile = auxiliaryMapping || mode is not (0 or 2); long stored = 0, ddsSize = 0;
+            bool readOnlyProfile = dimension != 1 || depth != 1 || auxiliaryMapping || mode is not (0 or 2); long stored = 0, ddsSize = 0;
             try
             {
                 if (baseOffset == 0 || (c & 0x1FFFFF) == 0x1FFFFF) throw new NotSupportedException("This catalog record has no mapped allocation in this pool shard.");
                 if (baseOffset < paddedMetadata || baseOffset >= virtualSize) throw new InvalidDataException("Texture virtual base exceeds the pool data.");
-                if (dimension != 1 || depth != 1) throw new NotSupportedException("This ETPF array/volume layout has not been validated.");
-                bool supportedMode = auxiliaryMapping
-                    ? mode is 2 or 4 or 5 or 6 or 7 or 36 or 38
-                    : mode is 0 or 1 or 2 or 32 or 34;
-                if (!supportedMode) throw new NotSupportedException("This compact mip mapping profile has not been validated.");
-                layout = SurfaceLayout(width, height, format, mips, (mode & 6) == 0 ? 65536 : 4096);
-                if (layout.Size > virtualSize - baseOffset) throw new InvalidDataException("Texture allocation exceeds the virtual pool.");
                 long nextAllocation = virtualSize;
                 for (int following = i + 1; following < textures; following++)
                 {
@@ -200,33 +221,86 @@ public static class TtpfReader
                     if (candidate < baseOffset) throw new InvalidDataException("Texture allocations are not ordered.");
                     if (candidate > baseOffset) { nextAllocation = candidate; break; }
                 }
-                if (layout.Size != nextAllocation - baseOffset) throw new InvalidDataException("Texture footprint does not match its native allocation span.");
-                if (auxiliaryMapping && !ValidateCompactStreamingChunks(chunks, baseOffset, layout.Size, mode, nonTail, c >> 21, d))
-                    throw new NotSupportedException("Auxiliary compact mip mapping is not decoded.");
+                long allocationSpan = nextAllocation - baseOffset;
+                if (allocationSpan < 1 || allocationSpan > MaxOutput) throw new NotSupportedException("Texture exceeds the 256MiB resource limit.");
+                if (dimension == 1 && depth == 1)
+                {
+                    bool supportedMode = auxiliaryMapping
+                        ? mode is 2 or 4 or 5 or 6 or 7 or 36 or 38
+                        : mode is 0 or 1 or 2 or 32 or 34;
+                    if (!supportedMode) throw new NotSupportedException("This compact mip mapping profile has not been validated.");
+                    layout = SurfaceLayout(width, height, format, mips, (mode & 6) == 0 ? 65536 : 4096);
+                    if (layout.Size != allocationSpan) throw new InvalidDataException("Texture footprint does not match its native allocation span.");
+                    if (auxiliaryMapping && !ValidateCompactStreamingChunks(chunks, baseOffset, layout.Size, mode, nonTail, c >> 21, d))
+                        throw new NotSupportedException("Auxiliary compact mip mapping is not decoded.");
+                }
+                else if (dimension == 1 && depth > 1)
+                {
+                    if (mode != 1 || auxiliaryMapping) throw new NotSupportedException("This ETPF array layout has not been validated.");
+                    layout = ArrayLayout(width, height, depth, format, mips);
+                    if (layout.Size != allocationSpan) throw new InvalidDataException("Texture array footprint does not match its native allocation span.");
+                }
+                else if (dimension == 2)
+                {
+                    if (depth != 6 || width != height || nonTail > 3 || mode != 18 + 2 * nonTail)
+                        throw new NotSupportedException("This ETPF cubemap layout has not been validated.");
+                    var faceLayout = SurfaceLayout(width, height, format, mips, 4096);
+                    int facesBytes = checked(faceLayout.Size * depth);
+                    int allocBytes = checked((int)allocationSpan);
+                    if (!auxiliaryMapping || !ValidateCubemapStreamingChunks(chunks, baseOffset, allocBytes, nonTail, c >> 21, d, facesBytes, out int dataOffset))
+                        throw new NotSupportedException("This cubemap streaming layout has not been validated.");
+                    layout = faceLayout with { Size = allocBytes, SliceBytes = faceLayout.Size, DataOffset = dataOffset };
+                }
+                else if (dimension == 3)
+                {
+                    if (mode != 2 || auxiliaryMapping || depth < 2 || mips != 1)
+                        throw new NotSupportedException("This ETPF volume layout has not been validated.");
+                    layout = VolumeLayout(width, height, depth, format);
+                    if (layout.Size != allocationSpan) throw new InvalidDataException("Volume texture footprint does not match its native allocation span.");
+                }
+                else throw new NotSupportedException("This ETPF array/volume layout has not been validated.");
                 var available = new bool[mips];
                 for (int mip = 0; mip < mips; mip++)
                 {
                     var level = layout.Mips[mip];
-                    available[mip] = ChunksFor(chunks, baseOffset + level.Offset, level.RegionSize).All(x => x.Codec is 0 or 8);
+                    int slices = layout.Volume ? Math.Max(1, depth >> mip) : depth;
+                    int step = layout.Volume ? layout.BlockDepth : 1;
+                    bool ok = true;
+                    for (int s = 0; s < slices && ok; s += step)
+                        ok = ChunksFor(chunks, MipSliceOffset(layout, baseOffset, level, s), level.RegionSize).All(x => x.Codec is 0 or 8);
+                    available[mip] = ok;
                 }
                 baseMip = Array.FindIndex(available, usable => usable);
                 if (baseMip < 0) throw new NotSupportedException("All source mips require an unavailable Xbox BCPack decoder.");
                 if (baseMip == 0 && legacyTopOnlyName) exported = 1;
                 else while (baseMip + exported < mips && available[baseMip + exported]) exported++;
-                var used = Enumerable.Range(baseMip, exported).SelectMany(mip => ChunksFor(chunks,
-                    baseOffset + layout.Mips[mip].Offset, layout.Mips[mip].RegionSize)).Distinct().ToArray();
-                stored = used.Sum(x => (long)x.Packed); ddsSize = 148;
-                for (int mip = baseMip; mip < baseMip + exported; mip++) ddsSize += LinearBytes(layout.Mips[mip], layout.ElementBytes);
+                var usedSet = new HashSet<Chunk>();
+                ddsSize = 148;
+                for (int mip = baseMip; mip < baseMip + exported; mip++)
+                {
+                    var level = layout.Mips[mip];
+                    int slices = layout.Volume ? Math.Max(1, depth >> mip) : depth;
+                    ddsSize = checked(ddsSize + (long)LinearBytes(level, layout.ElementBytes) * slices);
+                    int step = layout.Volume ? layout.BlockDepth : 1;
+                    for (int s = 0; s < slices; s += step)
+                        foreach (var chunk in ChunksFor(chunks, MipSliceOffset(layout, baseOffset, level, s), level.RegionSize)) usedSet.Add(chunk);
+                }
+                stored = usedSet.Sum(x => (long)x.Packed);
                 if (ddsSize > MaxOutput) throw new NotSupportedException("DDS exceeds the 256MiB output limit.");
             }
             catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or ArgumentException or OverflowException)
             { limitation = ex.Message; exported = baseMip = 0; stored = ddsSize = 0; }
             string formatName = RageTextureDecoder.GetTextureFormatName(format);
-            string note = auxiliaryMapping
-                ? $"Read-only compact profile: {nonTail} streaming mips and {packedMips} packed mips. Native replacement is unavailable. "
+            int exportDepth = dimension == 3 ? Math.Max(1, depth >> baseMip) : depth;
+            string note = dimension == 3 ? $"Read-only 3D volume ({exportDepth} slices). Native replacement is unavailable. "
+                : dimension == 2 ? $"Read-only cubemap ({depth} faces). Native replacement is unavailable. "
+                : depth > 1 ? $"Read-only 2D array ({depth} slices). Native replacement is unavailable. "
+                : auxiliaryMapping ? $"Read-only compact profile: {nonTail} streaming mips and {packedMips} packed mips. Native replacement is unavailable. "
                 : readOnlyProfile ? $"Read-only native storage mode ({mode}). Native replacement is unavailable. " : "";
-            note += baseMip > 0 ? $"Source is {width} × {height} with {mips} mips. Export starts at source mip {baseMip}: {Math.Max(1, width >> baseMip)} × {Math.Max(1, height >> baseMip)}, with {exported} decoded mip levels. Other source mips remain unavailable. "
-                : exported > 0 && exported < mips ? $"Source is {width} × {height} with {mips} mips. Export contains {exported} decoded mip levels starting at source mip 0: {width} × {height}. Other source mips remain unavailable. " : "";
+            string sourceDims = dimension == 3 ? $"{width} × {height} × {depth}" : $"{width} × {height}";
+            string exportDims = dimension == 3 ? $"{Math.Max(1, width >> baseMip)} × {Math.Max(1, height >> baseMip)} × {exportDepth}" : $"{Math.Max(1, width >> baseMip)} × {Math.Max(1, height >> baseMip)}";
+            note += baseMip > 0 ? $"Source is {sourceDims} with {mips} mips. Export starts at source mip {baseMip}: {exportDims}, with {exported} decoded mip levels. Other source mips remain unavailable. "
+                : exported > 0 && exported < mips ? $"Source is {sourceDims} with {mips} mips. Export contains {exported} decoded mip levels starting at source mip 0: {sourceDims}. Other source mips remain unavailable. " : "";
             if (format is 10 or 34 or 41 or 54 or 95 or 96) note += "Floating-point channels clip to 0–1 for display; DDS preserves source values. ";
             if (format == 65) note += "Alpha mask displayed as grayscale. ";
             int previewMip = baseMip + RageTextureDecoder.ChoosePreviewMip(Math.Max(1, width >> baseMip), Math.Max(1, height >> baseMip), exported);
@@ -241,7 +315,7 @@ public static class TtpfReader
         }
         var metadata = new Dictionary<string, string>
         {
-            ["Descriptor format"] = "RDS5 with embedded ETPF634; validated AMD 64KB_D and 4KB_S2D DDS exports",
+            ["Descriptor format"] = "RDS5 with embedded ETPF634; validated AMD 64KB_D and 4KB_S2D/3D DDS exports",
             ["Texture names"] = "Generated ordinal/opaque-ID names; original filenames are unknown",
             ["Native binding key"] = "Validated64-bit AssetKey array immediately after fixed texture descriptors; Id is an opaque metadata token",
             ["Descriptor count"] = textures.ToString("N0"),
@@ -249,7 +323,7 @@ public static class TtpfReader
             ["Top-mip-only exports"] = native.Count(x => x.Info.TopOnly).ToString("N0"),
             ["Lower-mip-only exports"] = native.Count(x => x.Info.CanExtract && x.Info.BaseMipLevel > 0).ToString("N0"),
             ["Source access"] = "Read-only; requested chunks only; zlib checksums checked on use",
-            ["Remaining layouts"] = "Arrays/volumes and BCPack-dependent mip levels remain unavailable"
+            ["Remaining layouts"] = "BCPack-dependent mip levels remain unavailable"
         };
         var result = new TtpfInfo(path, fileSize, virtualSize, 634, native.Select(x => x.Info).ToArray(), metadata);
         return new(result, chunks, native);
@@ -321,6 +395,20 @@ public static class TtpfReader
         return TryValidateChunkSizes(chunks, baseOffset, allocationSize, expectedPages[..count], out _);
     }
 
+    private static bool ValidateCubemapStreamingChunks(IReadOnlyList<Chunk> chunks, long baseOffset, int allocationSize,
+        int nonTail, uint meta, uint streamFlags, int facesBytes, out int dataOffset)
+    {
+        dataOffset = 0;
+        if ((streamFlags >> 9) != 0) return false;
+        Span<int> expectedPages = stackalloc int[4];
+        if (!TryDecodeChunkPages(meta, streamFlags, expectedPages, out int count) || count != nonTail + 1) return false;
+        if (!TryValidateChunkSizes(chunks, baseOffset, allocationSize, expectedPages[..count], out var mapped)) return false;
+        int expectedLastSize = nonTail > 0 && facesBytes >= 36 * 4096 ? checked((int)Align(facesBytes, 65536)) : facesBytes;
+        if (mapped[^1].Size != expectedLastSize) return false;
+        dataOffset = checked((int)(mapped[^1].Virtual - baseOffset));
+        return true;
+    }
+
     private static int ChunkCodePages(int code) => code switch
     {
         >= 1 and <= 8 => code,
@@ -333,7 +421,7 @@ public static class TtpfReader
     {
         try
         {
-            if ((b >> 23) != 0 || ((b >> 11) & 1023) != 0 || ((b >> 21) & 3) != 1 ||
+            if ((b >> 23) != 0 || ((b >> 10) & 0x7FF) != 0 || ((b >> 21) & 3) != 1 ||
                 (c >> 22) != 0 || d != 0 || oldMips <= 1) return false;
             long offset = (long)(c & 0x3FFFFF) * 4096;
             if (offset < metadata || offset >= virtualSize) return false;
@@ -359,10 +447,15 @@ public static class TtpfReader
         if (covered != end) throw new InvalidDataException("Texture range is not completely mapped."); return result;
     }
 
-    private static byte[] ReadMip(FileStream input, Index source, Native native, int mip, Dictionary<int, byte[]> cache, CancellationToken ct)
+    private static long MipSliceOffset(Layout layout, long baseOffset, Mip m, int slice) =>
+        layout.Volume ? checked(baseOffset + (long)(slice / layout.BlockDepth) * layout.ZBlockStride + m.Offset)
+        : layout.MipMajorSlices ? checked(baseOffset + m.Offset + (long)slice * m.RegionSize)
+        : checked(baseOffset + layout.DataOffset + (long)slice * layout.SliceBytes + m.Offset);
+
+    private static byte[] ReadMip(FileStream input, Index source, Native native, int mip, int slice, Dictionary<int, byte[]> cache, CancellationToken ct)
     {
         var layout = native.Layout!; var m = layout.Mips[mip];
-        long start = native.Info.VirtualOffset + m.Offset; byte[] tiled = new byte[m.RegionSize];
+        long start = MipSliceOffset(layout, native.Info.VirtualOffset, m, slice); byte[] tiled = new byte[m.RegionSize];
         foreach (var chunk in ChunksFor(source.Chunks, start, m.RegionSize))
         {
             ct.ThrowIfCancellationRequested(); int key = source.Chunks.IndexOfReference(chunk);
@@ -376,7 +469,7 @@ public static class TtpfReader
             ct.ThrowIfCancellationRequested();
             for (int x = 0; x < m.Width; x++)
             {
-                int offset = TiledOffset(layout, m, x, y);
+                int offset = TiledOffset(layout, m, x, y, slice);
                 if (offset > tiled.Length - layout.ElementBytes) throw new InvalidDataException("Tiled address exceeds its source range.");
                 tiled.AsSpan(offset, layout.ElementBytes).CopyTo(linear.AsSpan((y * m.Width + x) * layout.ElementBytes));
             }
@@ -441,17 +534,46 @@ public static class TtpfReader
         return tiled;
     }
 
-    private static int TiledOffset(Layout layout, Mip mip, int x, int y)
+    private static int TiledOffset(Layout layout, Mip mip, int x, int y, int slice = 0)
     {
         int offset = checked(((y / layout.BlockHeight) * (mip.PaddedWidth / layout.BlockWidth) + x / layout.BlockWidth) * layout.TileBytes);
-        var pattern = (layout.TileBytes == 4096 ? FourKbPatterns : Patterns)[Log(layout.ElementBytes)];
+        var pattern = (layout.Volume ? VolumePatterns : layout.TileBytes == 4096 ? FourKbPatterns : Patterns)[Log(layout.ElementBytes)];
         for (int bit = 0; bit < pattern.Length; bit++)
         {
             int s = pattern[bit];
-            if (s > 0) offset |= (((x + mip.TailX) >> (s - 1)) & 1) << bit;
+            if (s >= 101) offset |= ((slice >> (s - 101)) & 1) << bit;
+            else if (s > 0) offset |= (((x + mip.TailX) >> (s - 1)) & 1) << bit;
             else if (s < 0) offset |= (((y + mip.TailY) >> (-s - 1)) & 1) << bit;
         }
         return offset;
+    }
+
+    private static Layout ArrayLayout(int w, int h, int depth, int format, int mips)
+    {
+        var slice = SurfaceLayout(w, h, format, mips, 65536);
+        var ms = slice.Mips.ToArray();
+        int off = slice.FirstTail < mips ? checked(depth * 65536) : 0;
+        for (int i = slice.FirstTail - 1; i >= 0; i--)
+        {
+            ms[i] = ms[i] with { Offset = off };
+            off = checked(off + depth * ms[i].RegionSize);
+        }
+        if (off != checked(slice.Size * depth) || off > MaxOutput) throw new NotSupportedException("Texture exceeds the 256MiB resource limit.");
+        return slice with { Size = off, Mips = ms, MipMajorSlices = true };
+    }
+
+    private static Layout VolumeLayout(int w, int h, int depth, int format)
+    {
+        int eb = RageTextureDecoder.GetTextureElementBytes(format), log = Log(eb), px = RageTextureDecoder.IsBlockCompressed(format) ? 4 : 1;
+        (int bw, int bh, int bd) = log switch { 0 => (16, 16, 16), 1 => (8, 16, 16), 2 => (8, 16, 8), 3 => (8, 8, 8), _ => (4, 8, 8) };
+        int ew = (w + px - 1) / px, eh = (h + px - 1) / px;
+        int pw = checked((int)Align(ew, bw)), ph = checked((int)Align(eh, bh));
+        int zBlockStride = checked(pw * ph * eb * bd);
+        int zBlocks = checked((int)Align(depth, bd)) / bd;
+        int sizeBytes = checked(zBlockStride * zBlocks);
+        if (sizeBytes < 1 || sizeBytes > MaxOutput) throw new NotSupportedException("Texture exceeds the 256MiB resource limit.");
+        return new(sizeBytes, bw, bh, 1, eb, [new(ew, eh, pw, 0, zBlockStride, 0, 0)])
+        { TileBytes = 4096, Volume = true, BlockDepth = bd, ZBlockStride = zBlockStride };
     }
 
     private static Layout SurfaceLayout(int w, int h, int format, int mips, int tileBytes = 65536)
