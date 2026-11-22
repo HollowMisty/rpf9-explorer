@@ -38,18 +38,21 @@ public static class Rpf9ModelRecovery
         if (scanStart > file.Length) throw new ArgumentOutOfRangeException(nameof(scanStart));
         long end = scanLength is null ? file.Length : Math.Min(file.Length, checked(scanStart + scanLength.Value));
         long position = scanStart & ~4095L;
-        var candidates = new List<long>(); byte[] scan = new byte[ScanBlock + 65536];
+        var candidates = new List<long>(); byte[] scan = new byte[16 + ScanBlock + 65536];
         while (position < end)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // Every stream starts on a 16-byte boundary after 16 zero bytes. Most start 16 bytes into a 4 KiB page, but a
+            // small resource can follow the previous stream inside the same page, so check every boundary.
+            int lead = position >= 16 ? 16 : 0;
             int count = (int)Math.Min(ScanBlock, end - position);
-            int readCount = (int)Math.Min(count + 65536L, file.Length - position);
-            file.Position = position; file.ReadExactly(scan.AsSpan(0, readCount));
-            for (int page = 0; page < count && page + 20 < readCount; page += 4096)
+            int readCount = (int)Math.Min(lead + count + 65536L, file.Length - position + lead);
+            file.Position = position - lead; file.ReadExactly(scan.AsSpan(0, readCount));
+            for (int at = 16; at < lead + count && at + 4 < readCount; at += 16)
             {
-                long offset = position + page + 16;
-                if (offset < scanStart || offset >= end || scan.AsSpan(page, 16).IndexOfAnyExcept((byte)0) >= 0 || !ZlibHeader(scan.AsSpan(page + 16, 2))) continue;
-                if (!LooksLikeSystem(scan, page + 16, readCount - page - 16, fragmentsOnly)) continue;
+                long offset = position - lead + at;
+                if (offset < scanStart || offset >= end || !ZlibHeader(scan.AsSpan(at, 2)) || scan.AsSpan(at - 16, 16).IndexOfAnyExcept((byte)0) >= 0) continue;
+                if (!LooksLikeSystem(scan, at, readCount - at, fragmentsOnly)) continue;
                 if (candidates.Count >= MaxCandidateOffsets) throw new InvalidDataException("The candidate limit was reached; scan a smaller range.");
                 candidates.Add(offset);
             }
@@ -86,7 +89,7 @@ public static class Rpf9ModelRecovery
         foreach (long candidate in candidateOffsets)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!seen.Add(candidate) || candidate < 16 || candidate > fileSize - 6 || (candidate & 4095) != 16) continue;
+            if (!seen.Add(candidate) || candidate < 16 || candidate > fileSize - 6 || (candidate & 15) != 0) continue;
             file.Position = candidate - 16; file.ReadExactly(prefix);
             long budget = 0;
             if (prefix.IndexOfAnyExcept((byte)0) >= 0 ||
