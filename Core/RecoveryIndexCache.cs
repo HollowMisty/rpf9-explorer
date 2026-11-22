@@ -82,7 +82,7 @@ public static class RecoveryIndexCache
 
     public static string CachePath(string kind, string source)
     {
-        if (kind is not ("models" or "textures" or "audio" or "shaders")) throw new ArgumentException("Unknown payload index kind.");
+        if (kind is not ("models" or "textures" or "audio" or "shaders" or "psin")) throw new ArgumentException("Unknown payload index kind.");
         var identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(source).ToUpperInvariant())));
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RpfPreview", "Indexes", kind + "-" + identity[..24] + ".json");
     }
@@ -93,10 +93,10 @@ public static class RecoveryIndexCache
     }
     private static void Validate(string kind, long length, IReadOnlyList<ArchiveEntry> entries, string schema)
     {
-        string compression = kind switch { "models" => "Recovered model", "textures" => "Recovered texture dictionary", "audio" => "Recovered AWC", "shaders" => "Recovered raw deflate shader", _ => throw new InvalidDataException("Unknown cache kind.") };
+        string compression = kind switch { "models" => "Recovered model", "textures" => "Recovered texture dictionary", "audio" => "Recovered AWC", "shaders" => "Recovered raw deflate shader", "psin" => "Recovered zlib", _ => throw new InvalidDataException("Unknown cache kind.") };
         int maximum = kind == "models" ? Rpf9ModelRecovery.MaxRecoveredModels : 250_000;
         if (entries == null || entries.Count > maximum) throw new InvalidDataException("Invalid payload cache count.");
-        bool rawAllowed = kind == "models" && schema is MixedBlocksSchema or PreviousModelSchema or ModelSchema;
+        bool rawAllowed = kind == "psin" || kind == "models" && schema is MixedBlocksSchema or PreviousModelSchema or ModelSchema;
         bool selectionAllowed = kind == "models" && schema is LegacyModelSchema or PreviousModelSchema or ModelSchema;
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in entries)

@@ -85,6 +85,10 @@ Select a supported movie or audio bank to open its preview. Audio banks have a s
 
 Native game audio and Bink movie previews need the corresponding helpers in `Tools`. These helpers are included in the Windows build, but their executables are not included in the source ZIP. Some audio codecs remain unsupported, and decoded audio previews are limited to 120 seconds. For 32 kHz AWC Opus streams, the preview and its saved WAV use the bank's playback rate.
 
+## Browse PSIN metadata
+
+**Scan entire archive** also finds PSIN metadata containers anywhere in an RPF9 file, including containers with 64 KiB blocks that are stored without compression. A container is listed only when its CHKS checksum matches. The Structure tab shows its sections; both section lists (`LSCH…` and `PMAP…`) are accepted. The meaning of the binary fields is not decoded, and a PSIN container is not a script.
+
 ## Extract files
 
 Select results and click **Extract selected**. Use Ctrl or Shift to select multiple rows or thumbnails. **Extract results** exports available entries in the current filtered results.

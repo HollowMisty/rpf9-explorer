@@ -32,7 +32,7 @@ public partial class MainWindow
         {
             await OpenSourcesAsync(new[] { document.SourcePath }, true);
             FilesGrid.SelectedItem = _rows.FirstOrDefault(r => r.Asset?.SourcePath == document.SourcePath && r.Entry.Path == selected);
-            StatusText.Text = $"Full source scan completed · {result.Models:N0} models · {result.TextureDictionaries:N0} texture dictionaries · {result.AudioBanks:N0} audio banks · {result.Shaders:N0} shaders. Original RPF9 directory remains undecoded.";
+            StatusText.Text = $"Full source scan completed · {result.Models:N0} models · {result.TextureDictionaries:N0} texture dictionaries · {result.AudioBanks:N0} audio banks · {result.Shaders:N0} shaders · {result.PsinContainers:N0} PSIN containers. Original RPF9 directory remains undecoded.";
         }
     }
 }
