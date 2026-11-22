@@ -110,7 +110,7 @@ public static class TtpfReader
 
     public static byte[] CreateDds(string path, int index, bool allowProvisional, CancellationToken cancellationToken = default)
     {
-        var source = ReadIndex(path, cancellationToken); var native = Select(source, index);
+        var source = ReadIndexCached(path, cancellationToken); var native = Select(source, index);
         var t = native.Info; var layout = native.Layout!;
         using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (input.Length != source.Info.SourceLength) throw new IOException("The texture pool changed while it was being read.");
@@ -156,6 +156,20 @@ public static class TtpfReader
         if (input.Length != source.Info.SourceLength) throw new IOException("The texture pool changed while it was being read.");
         byte[] linear = ReadMip(input, source, native, t.PreviewMipLevel, slice, new(), cancellationToken, allowProvisional);
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, t.PreviewWidth, t.PreviewHeight, t.DxgiFormat);
+    }
+
+    // Bulk export calls CreateDds once per texture: re-parsing the whole index each time made a pool's export
+    // quadratic in its texture count. The last index is reused while the file's path, length and write time match.
+    sealed record CachedIndex(string Path, long Length, DateTime Written, Index Index);
+    static CachedIndex? lastIndex;
+    static Index ReadIndexCached(string path, CancellationToken ct)
+    {
+        path = Path.GetFullPath(path); var file = new FileInfo(path);
+        var c = Volatile.Read(ref lastIndex);
+        if (c != null && c.Path == path && c.Length == file.Length && c.Written == file.LastWriteTimeUtc) return c.Index;
+        var index = ReadIndex(path, ct);
+        Volatile.Write(ref lastIndex, new CachedIndex(path, file.Length, file.LastWriteTimeUtc, index));
+        return index;
     }
 
     internal static Index ReadIndex(string path, CancellationToken ct)
