@@ -820,7 +820,12 @@ public static class RageModelDecoder
             {
                 uint hint = (countFlags >> 16) & 0x1FFF;
                 bool constantBinding = (countFlags & 0x20000000) != 0;
-                Require(constantBinding ? (hint & 1) == 0 && (boneCount == 0 || hint / 2 < boneCount) : hint == 0);
+                // Constant binding: hint / 2 is the one bone. Otherwise hint is 0, or 2 when the per-vertex bone
+                // index (vertex slot 20) is a single R16_UINT, which models with more than 256 bones use.
+                const int BoneIndexSlot = 20, R16Uint = 57;
+                bool wideIndices = sys[fvf + 0xD0 + BoneIndexSlot] == 2 && sys[fvf + 0x104 + BoneIndexSlot] == R16Uint;
+                Require(constantBinding ? (hint & 1) == 0 && (boneCount == 0 || hint / 2 < boneCount) :
+                    hint == 0 || (hint == 2 && wideIndices));
                 for (int i = 0; i < clusterCount; i++)
                 {
                     ushort bone = U16(index, paletteAt + i * 2);
