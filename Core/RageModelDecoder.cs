@@ -376,7 +376,7 @@ public static class RageModelDecoder
                 for (int mi = 0; mi < models; mi++)
                 {
                     int model = S(pointers + mi * 8, 56), count = U16(model + 16);
-                    Check(seenModels.Add(model) && count is > 0 and <= 256 && count == U16(model + 18) && count == U16(model + 54));
+                    Check(seenModels.Add(model) && count is > 0 and <= MaxMeshes && count == U16(model + 18) && count == U16(model + 54));
                     int boneCount = U16(model + 20); Check(boneCount <= 4096);
                     int geometries = S(model + 8, count * 8);
                     S(model + 24, checked((count + (count > 1 ? 1 : 0)) * 32));
@@ -412,8 +412,9 @@ public static class RageModelDecoder
                 for (int i = 0; i < 5; i++)
                 {
                     int list = renderer + i * 16, count = U16(list + 8);
-                    Check(count == U16(list + 10) && count <= 4096);
-                    if (count > 0) S(list, i < 4 ? checked(count * 4) : 1);
+                    // List 4 holds 80-byte entries and is not capped: a ushort count covers at most 5.2 MiB.
+                    Check(count == U16(list + 10) && (i == 4 || count <= 4096));
+                    if (count > 0) S(list, checked(count * (i < 4 ? 4 : 80)));
                 }
             }
         }
