@@ -121,7 +121,7 @@ public static class RageModelDecoder
             !(SystemPointer(name) || (embedded && name == 0))) return false;
         Vector3 min = ReadVector(prefix, 48), max = ReadVector(prefix, 64);
         float radius = BinaryPrimitives.ReadSingleLittleEndian(prefix[44..]);
-        return ValidBounds(min, max) && float.IsFinite(radius) && radius is > 0 and < 1_000_000;
+        return ValidBounds(min, max) && float.IsFinite(radius) && radius is >= 0 and < 1_000_000;
     }
 
     public static RageModel? Inspect(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics) => Decode(system, graphics);
@@ -557,7 +557,7 @@ public static class RageModelDecoder
             }
             Require(meshes.Count > 0);
             Vector3 previewMin = min, previewMax = max;
-            if (dictionary || hasBoneBindings)
+            if (dictionary || hasBoneBindings || min == max)
             {
                 previewMin = new(float.PositiveInfinity); previewMax = new(float.NegativeInfinity);
                 foreach (var mesh in meshes)
