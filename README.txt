@@ -130,13 +130,14 @@ floating-point values are clipped to 0–1 and large images use an available sma
 mip. Format/resolution notes are displayed.
 
 Streaming textures: open or drop an RDS5 .ttpf pool to browse its native ETPF634
-catalog. Validated 2D allocations with stored/zlib chunks preview and export DDS
-using the AMD 64KB_D layout. Some textures export only their top mip; the app and
-DDS header identify that accurately. Catalog IDs are opaque and original filename
-semantics remain unknown. BCPack-dependent top mips,
-auxiliary compact mappings and unvalidated array/volume layouts are listed with
-their limitations. Original filenames remain unknown; supported external diffuse
-material references use the separately validated native 64-bit asset keys.
+catalog. Validated 2D, compact, array, cubemap and 3D-volume allocations with
+stored, zlib or BCPack (BC1/BC3/BC4/BC5) chunks preview and export DDS. Some
+textures export only their supported mips; the app and DDS header identify that
+accurately. Catalog IDs are opaque and original filename semantics remain unknown.
+Unsupported BCPack codecs (BC6H/BC7), unvalidated storage profiles and unsupported
+formats are listed with their limitations. Original filenames remain unknown;
+supported external diffuse material references use the separately validated native
+64-bit asset keys.
 
 Audio: validated AWC banks, independent Opus, streamed Opus music channels, PCM
 and nonstreamed XMA2 via a local FFmpeg backend. Choose a sound/channel and press

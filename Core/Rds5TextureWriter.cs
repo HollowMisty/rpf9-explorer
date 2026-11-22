@@ -145,7 +145,7 @@ public static class Rds5TextureWriter
 
 
             long start = selected.Info.VirtualOffset, end = start + tiled.Length;
-            foreach (var sample in original.Native.Where(n => n.Info.Index != index && n.Info.CanExtract && n.Layout is not null &&
+            foreach (var sample in original.Native.Where(n => n.Info.Index != index && n.Info.CanExtract && !n.UsesBcpack && n.Layout is not null &&
                 (n.Info.VirtualOffset >= end || n.Info.VirtualOffset + n.Layout.Size <= start)).OrderBy(n => n.Info.DdsSize).Take(2))
             {
                 cancellationToken.ThrowIfCancellationRequested();

@@ -62,7 +62,7 @@ public static class TtpfReader
         public bool MipMajorSlices { get; init; }
         public bool Volume { get; init; }
     }
-    internal sealed record Native(TtpfTextureInfo Info, Layout? Layout);
+    internal sealed record Native(TtpfTextureInfo Info, Layout? Layout, bool UsesBcpack = false);
     internal sealed record Index(TtpfInfo Info, IReadOnlyList<Chunk> Chunks, IReadOnlyList<Native> Native);
     private static readonly int[][] Patterns = [
         [1,2,3,-2,-1,-3,4,-4,-5,5,-6,6,-7,7,-8,8],
@@ -89,6 +89,9 @@ public static class TtpfReader
         => DecodeTexturePreview(path, index, 192, cancellationToken);
 
     public static RageTexturePixels DecodeTexturePreview(string path, int index, int maximumDimension = 1024, CancellationToken cancellationToken = default)
+        => DecodeTexturePreview(path, index, maximumDimension, false, cancellationToken);
+
+    public static RageTexturePixels DecodeTexturePreview(string path, int index, int maximumDimension, bool allowProvisional, CancellationToken cancellationToken = default)
     {
         if (maximumDimension is < 32 or > 4096) throw new ArgumentOutOfRangeException(nameof(maximumDimension));
         var source = ReadIndex(path, cancellationToken); var native = Select(source, index); var t = native.Info;
@@ -98,11 +101,14 @@ public static class TtpfReader
         if ((long)width * height > 16 * 1024 * 1024) throw new NotSupportedException("No bounded thumbnail mip is available.");
         using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (input.Length != source.Info.SourceLength) throw new IOException("Texture pool changed.");
-        byte[] linear = ReadMip(input, source, native, level, 0, new(), cancellationToken);
+        byte[] linear = ReadMip(input, source, native, level, 0, new(), cancellationToken, allowProvisional);
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, width, height, t.DxgiFormat);
     }
 
     public static byte[] CreateDds(string path, int index, CancellationToken cancellationToken = default)
+        => CreateDds(path, index, false, cancellationToken);
+
+    public static byte[] CreateDds(string path, int index, bool allowProvisional, CancellationToken cancellationToken = default)
     {
         var source = ReadIndex(path, cancellationToken); var native = Select(source, index);
         var t = native.Info; var layout = native.Layout!;
@@ -125,19 +131,22 @@ public static class TtpfReader
         {
             for (int mip = t.BaseMipLevel; mip < t.BaseMipLevel + t.Mips; mip++)
                 for (int z = 0; z < Math.Max(1, t.Depth >> mip); z++)
-                    writer.Write(ReadMip(input, source, native, mip, z, cache, cancellationToken));
+                    writer.Write(ReadMip(input, source, native, mip, z, cache, cancellationToken, allowProvisional));
         }
         else
         {
             for (int slice = 0; slice < t.Depth; slice++)
                 for (int mip = t.BaseMipLevel; mip < t.BaseMipLevel + t.Mips; mip++)
-                    writer.Write(ReadMip(input, source, native, mip, slice, cache, cancellationToken));
+                    writer.Write(ReadMip(input, source, native, mip, slice, cache, cancellationToken, allowProvisional));
         }
         if (output.Length != t.DdsSize) throw new InvalidDataException("Generated DDS length disagrees with the inspected texture.");
         return output.ToArray();
     }
 
     public static RageTexturePixels DecodeTexturePixels(string path, int index, int slice = 0, CancellationToken cancellationToken = default)
+        => DecodeTexturePixels(path, index, slice, false, cancellationToken);
+
+    public static RageTexturePixels DecodeTexturePixels(string path, int index, int slice, bool allowProvisional, CancellationToken cancellationToken = default)
     {
         var source = ReadIndex(path, cancellationToken); var native = Select(source, index); var t = native.Info;
         int sliceCount = t.Dimension == 3 ? Math.Max(1, t.Depth >> t.PreviewMipLevel) : t.Depth;
@@ -145,7 +154,7 @@ public static class TtpfReader
         if (!t.CanPreview) throw new NotSupportedException(t.Limitation ?? "No supported mip fits the preview output limit.");
         using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (input.Length != source.Info.SourceLength) throw new IOException("The texture pool changed while it was being read.");
-        byte[] linear = ReadMip(input, source, native, t.PreviewMipLevel, slice, new(), cancellationToken);
+        byte[] linear = ReadMip(input, source, native, t.PreviewMipLevel, slice, new(), cancellationToken, allowProvisional);
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, t.PreviewWidth, t.PreviewHeight, t.DxgiFormat);
     }
 
@@ -209,7 +218,7 @@ public static class TtpfReader
             bool legacyTopOnlyName = LegacyTopOnlyName(width, height, format, packedMips + 1, b, c, d, paddedMetadata, virtualSize, chunks);
             bool auxiliaryMapping = (c >> 21) != 0 || d != 0;
             string? limitation = null; Layout? layout = null; int exported = 0, baseMip = 0;
-            bool readOnlyProfile = dimension != 1 || depth != 1 || auxiliaryMapping || mode is not (0 or 2); long stored = 0, ddsSize = 0;
+            bool readOnlyProfile = dimension != 1 || depth != 1 || auxiliaryMapping || mode is not (0 or 2), usesBcpack = false; long stored = 0, ddsSize = 0;
             try
             {
                 if (baseOffset == 0 || (c & 0x1FFFFF) == 0x1FFFFF) throw new NotSupportedException("This catalog record has no mapped allocation in this pool shard.");
@@ -260,18 +269,35 @@ public static class TtpfReader
                 }
                 else throw new NotSupportedException("This ETPF array/volume layout has not been validated.");
                 var available = new bool[mips];
+                SortedSet<int>? unsupportedCodecs = null;
                 for (int mip = 0; mip < mips; mip++)
                 {
                     var level = layout.Mips[mip];
                     int slices = layout.Volume ? Math.Max(1, depth >> mip) : depth;
                     int step = layout.Volume ? layout.BlockDepth : 1;
                     bool ok = true;
-                    for (int s = 0; s < slices && ok; s += step)
-                        ok = ChunksFor(chunks, MipSliceOffset(layout, baseOffset, level, s), level.RegionSize).All(x => x.Codec is 0 or 8);
+                    for (int s = 0; s < slices; s += step)
+                    {
+                        foreach (var chunk in ChunksFor(chunks, MipSliceOffset(layout, baseOffset, level, s), level.RegionSize))
+                        {
+                            if (!IsDecodableCodec(chunk.Codec))
+                            {
+                                ok = false;
+                                unsupportedCodecs ??= new SortedSet<int>();
+                                unsupportedCodecs.Add(chunk.Codec);
+                            }
+                        }
+                    }
                     available[mip] = ok;
                 }
                 baseMip = Array.FindIndex(available, usable => usable);
-                if (baseMip < 0) throw new NotSupportedException("All source mips require an unavailable Xbox BCPack decoder.");
+                if (baseMip < 0)
+                {
+                    string codecsText = unsupportedCodecs is { Count: > 0 }
+                        ? string.Join("/", unsupportedCodecs.Select(BcpackDecoder.GetCodecName))
+                        : "unknown";
+                    throw new NotSupportedException($"All source mips require an unsupported Xbox BCPack codec ({codecsText}).");
+                }
                 if (baseMip == 0 && legacyTopOnlyName) exported = 1;
                 else while (baseMip + exported < mips && available[baseMip + exported]) exported++;
                 var usedSet = new HashSet<Chunk>();
@@ -285,6 +311,7 @@ public static class TtpfReader
                     for (int s = 0; s < slices; s += step)
                         foreach (var chunk in ChunksFor(chunks, MipSliceOffset(layout, baseOffset, level, s), level.RegionSize)) usedSet.Add(chunk);
                 }
+                usesBcpack = usedSet.Any(x => x.Codec is not (0 or 8));
                 stored = usedSet.Sum(x => (long)x.Packed);
                 if (ddsSize > MaxOutput) throw new NotSupportedException("DDS exceeds the 256MiB output limit.");
             }
@@ -296,7 +323,8 @@ public static class TtpfReader
                 : dimension == 2 ? $"Read-only cubemap ({depth} faces). Native replacement is unavailable. "
                 : depth > 1 ? $"Read-only 2D array ({depth} slices). Native replacement is unavailable. "
                 : auxiliaryMapping ? $"Read-only compact profile: {nonTail} streaming mips and {packedMips} packed mips. Native replacement is unavailable. "
-                : readOnlyProfile ? $"Read-only native storage mode ({mode}). Native replacement is unavailable. " : "";
+                : readOnlyProfile ? $"Read-only native storage mode ({mode}). Native replacement is unavailable. "
+                : usesBcpack ? "Read-only BCPack-compressed texture. Native replacement is unavailable. " : "";
             string sourceDims = dimension == 3 ? $"{width} × {height} × {depth}" : $"{width} × {height}";
             string exportDims = dimension == 3 ? $"{Math.Max(1, width >> baseMip)} × {Math.Max(1, height >> baseMip)} × {exportDepth}" : $"{Math.Max(1, width >> baseMip)} × {Math.Max(1, height >> baseMip)}";
             note += baseMip > 0 ? $"Source is {sourceDims} with {mips} mips. Export starts at source mip {baseMip}: {exportDims}, with {exported} decoded mip levels. Other source mips remain unavailable. "
@@ -309,9 +337,9 @@ public static class TtpfReader
             var info = new TtpfTextureInfo(i, $"texture_{i:D6}_{id[..16]}{suffix}.dds",
                 width, height, format, formatName == "Unknown" ? $"DXGI {format}" : formatName, exported, depth, dimension, stored, ddsSize)
             { SourceMips = mips, NonTailMipCount = nonTail, PackedMipCount = packedMips, BaseMipLevel = baseMip,
-                SupportsNativeReplacement = !readOnlyProfile && limitation == null && baseMip == 0 && exported == mips,
+                SupportsNativeReplacement = !readOnlyProfile && !usesBcpack && limitation == null && baseMip == 0 && exported == mips,
                 AssetKey = assetKey, Id = id, VirtualOffset = baseOffset, Limitation = limitation, PreviewNote = note.Length == 0 ? null : note.Trim() };
-            native.Add(new(info, layout));
+            native.Add(new(info, layout, usesBcpack));
         }
         var metadata = new Dictionary<string, string>
         {
@@ -322,8 +350,8 @@ public static class TtpfReader
             ["Supported DDS exports"] = native.Count(x => x.Info.CanExtract).ToString("N0"),
             ["Top-mip-only exports"] = native.Count(x => x.Info.TopOnly).ToString("N0"),
             ["Lower-mip-only exports"] = native.Count(x => x.Info.CanExtract && x.Info.BaseMipLevel > 0).ToString("N0"),
-            ["Source access"] = "Read-only; requested chunks only; zlib checksums checked on use",
-            ["Remaining layouts"] = "Unvalidated storage profiles, unsupported formats, and BCPack-dependent mip levels remain unavailable"
+            ["Source access"] = "Read-only; requested chunks only; zlib checksums and BCPack rANS streams checked on use",
+            ["Remaining layouts"] = "Unvalidated storage profiles, unsupported formats, and unsupported BCPack codecs (BC6H/BC7) remain unavailable"
         };
         var result = new TtpfInfo(path, fileSize, virtualSize, 634, native.Select(x => x.Info).ToArray(), metadata);
         return new(result, chunks, native);
@@ -425,9 +453,9 @@ public static class TtpfReader
             if (offset < metadata || offset >= virtualSize) return false;
             var layout = SurfaceLayout(width, height, format, oldMips);
             if ((b & 7) != layout.FirstTail || layout.Size > virtualSize - offset) return false;
-            if (ChunksFor(chunks, offset, layout.Size).All(x => x.Codec is 0 or 8)) return false;
+            if (ChunksFor(chunks, offset, layout.Size).All(x => IsDecodableCodec(x.Codec))) return false;
             var top = layout.Mips[0];
-            return ChunksFor(chunks, offset + top.Offset, top.RegionSize).All(x => x.Codec is 0 or 8);
+            return ChunksFor(chunks, offset + top.Offset, top.RegionSize).All(x => IsDecodableCodec(x.Codec));
         }
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or ArgumentException or OverflowException) { return false; }
     }
@@ -450,14 +478,14 @@ public static class TtpfReader
         : layout.MipMajorSlices ? checked(baseOffset + m.Offset + (long)slice * m.RegionSize)
         : checked(baseOffset + layout.DataOffset + (long)slice * layout.SliceBytes + m.Offset);
 
-    private static byte[] ReadMip(FileStream input, Index source, Native native, int mip, int slice, Dictionary<int, byte[]> cache, CancellationToken ct)
+    private static byte[] ReadMip(FileStream input, Index source, Native native, int mip, int slice, Dictionary<int, byte[]> cache, CancellationToken ct, bool allowProvisional = false)
     {
         var layout = native.Layout!; var m = layout.Mips[mip];
         long start = MipSliceOffset(layout, native.Info.VirtualOffset, m, slice); byte[] tiled = new byte[m.RegionSize];
         foreach (var chunk in ChunksFor(source.Chunks, start, m.RegionSize))
         {
             ct.ThrowIfCancellationRequested(); int key = source.Chunks.IndexOfReference(chunk);
-            if (!cache.TryGetValue(key, out var decoded)) { decoded = DecodeChunk(input, chunk, ct); cache.Add(key, decoded); }
+            if (!cache.TryGetValue(key, out var decoded)) { decoded = DecodeChunk(input, chunk, ct, allowProvisional); cache.Add(key, decoded); }
             long from = Math.Max(start, chunk.Virtual), to = Math.Min(start + m.RegionSize, chunk.Virtual + chunk.Size);
             decoded.AsSpan((int)(from - chunk.Virtual), (int)(to - from)).CopyTo(tiled.AsSpan((int)(from - start)));
         }
@@ -475,11 +503,16 @@ public static class TtpfReader
         return linear;
     }
 
-    internal static byte[] DecodeChunk(FileStream input, Chunk chunk, CancellationToken ct)
+    private static bool IsDecodableCodec(int codec) => codec is 0 or 8 || BcpackDecoder.IsSupportedCodec(codec);
+
+    internal static byte[] DecodeChunk(FileStream input, Chunk chunk, CancellationToken ct, bool allowProvisional = false)
     {
-        if (chunk.Codec is not (0 or 8)) throw new NotSupportedException("An Xbox BCPack decompression backend is required.");
+        if (!IsDecodableCodec(chunk.Codec))
+            throw new NotSupportedException($"Xbox BCPack codec {chunk.Codec} ({BcpackDecoder.GetCodecName(chunk.Codec)}) is not supported.");
         byte[] packed = new byte[chunk.Packed]; input.Position = chunk.Source; input.ReadExactly(packed);
         if (chunk.Codec == 0) return packed;
+        if (BcpackDecoder.IsSupportedCodec(chunk.Codec))
+            return BcpackDecoder.Decode(packed, chunk.Codec, chunk.Size, allowProvisional, ct);
         if (packed.Length < 6) throw new InvalidDataException("Truncated zlib chunk.");
         using var data = new MemoryStream(packed, false); using var zlib = new ZLibStream(data, CompressionMode.Decompress);
         byte[] decoded = new byte[chunk.Size]; int copied = 0; uint a = 1, b = 0;
