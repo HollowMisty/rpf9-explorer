@@ -84,17 +84,36 @@ public static class RageModelDecoder
         return a is > 0 and <= 4096 && b <= 4096 && c <= d && d <= 4096;
     }
 
+    /// <summary>A dictionary header whose first value is an embedded drawable. Texture dictionaries share the header,
+    /// but their values are textures. When the first value lies beyond <paramref name="prefix"/>, the header alone
+    /// decides and the per-child checks reject other dictionaries; see <see cref="DrawableDictionaryCheckBytes"/>.</summary>
     public static bool LooksLikeDrawableDictionary(ReadOnlySpan<byte> prefix)
+    {
+        int needed = DrawableDictionaryCheckBytes(prefix);
+        if (needed < 0) return false;
+        if (needed > prefix.Length) return true;
+        return LooksLikeDrawableHeader(prefix[(needed - 176)..], true);
+    }
+
+    /// <summary>System bytes needed to check the first value of a dictionary header: through the value array entry, or
+    /// through the first value's 176-byte drawable header once that entry is readable. -1 when the bytes do not start
+    /// with a dictionary header or the first value is not a system pointer.</summary>
+    public static int DrawableDictionaryCheckBytes(ReadOnlySpan<byte> prefix)
     {
         if (prefix.Length < 64 || BinaryPrimitives.ReadUInt64LittleEndian(prefix) != 0 ||
             !SystemPointer(BinaryPrimitives.ReadUInt64LittleEndian(prefix[8..])) ||
             !SystemPointer(BinaryPrimitives.ReadUInt64LittleEndian(prefix[32..])) ||
-            !SystemPointer(BinaryPrimitives.ReadUInt64LittleEndian(prefix[48..]))) return false;
+            !SystemPointer(BinaryPrimitives.ReadUInt64LittleEndian(prefix[48..]))) return -1;
         int count = BinaryPrimitives.ReadUInt16LittleEndian(prefix[56..]);
-        return count is > 0 and <= MaxDictionaryChildren &&
+        if (!(count is > 0 and <= MaxDictionaryChildren &&
             count == BinaryPrimitives.ReadUInt16LittleEndian(prefix[58..]) &&
             count == BinaryPrimitives.ReadUInt16LittleEndian(prefix[40..]) &&
-            count == BinaryPrimitives.ReadUInt16LittleEndian(prefix[42..]);
+            count == BinaryPrimitives.ReadUInt16LittleEndian(prefix[42..]))) return -1;
+        int values = (int)(BinaryPrimitives.ReadUInt64LittleEndian(prefix[48..]) - 0x50000000);
+        if (values > prefix.Length - 8) return values + 8;
+        ulong first = BinaryPrimitives.ReadUInt64LittleEndian(prefix[values..]);
+        if (!SystemPointer(first)) return -1;
+        return (int)(first - 0x50000000) + 176;
     }
 
     public static bool LooksLikeResource(ReadOnlySpan<byte> prefix) =>
