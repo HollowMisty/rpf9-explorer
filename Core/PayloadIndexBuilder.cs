@@ -1,7 +1,7 @@
 namespace RpfPreview.Core;
 
 public sealed record PayloadIndexProgress(double Fraction, string Message);
-public sealed record PayloadIndexResult(int Models, int TextureDictionaries, int AudioBanks, int Shaders = 0);
+public sealed record PayloadIndexResult(int Models, int TextureDictionaries, int AudioBanks, int Shaders = 0, int ClipDictionaries = 0);
 
 
 public static class PayloadIndexBuilder
@@ -75,7 +75,7 @@ public static class PayloadIndexBuilder
             Span<byte> magic = stackalloc byte[4]; file.ReadExactly(magic);
             if (!magic.SequenceEqual("9FPR"u8)) throw new NotSupportedException("Full payload scanning currently supports the observed little-endian RPF9 format.");
         }
-        void Report(int stage, double part, string text) => progress?.Report(new((stage + Math.Clamp(part, 0, 1)) / 4, text));
+        void Report(int stage, double part, string text) => progress?.Report(new((stage + Math.Clamp(part, 0, 1)) / 5, text));
         int models = BuildModels(source, new InlineProgress<PayloadIndexProgress>(p => Report(0, p.Fraction, p.Message)), token);
 
         var textureOffsets = Rpf9TextureRecovery.FindCandidateOffsets(source, 0, null,
@@ -97,8 +97,17 @@ public static class PayloadIndexBuilder
             new InlineProgress<long>(position => Report(3, (double)position / length, $"Scanning native shaders · {position:N0}/{length:N0} bytes")), token);
         token.ThrowIfCancellationRequested();
         RecoveryIndexCache.Save("shaders", source, shaders, $"Full {length:N0}-byte raw-wrapper scan; {shaders.Count:N0} validated native shader containers. Original directory remains undecoded.");
-        Report(3, 1, $"Index ready · {models:N0} models · {textures.Count:N0} texture dictionaries · {audio.Count:N0} audio banks · {shaders.Count:N0} shaders");
-        return new(models, textures.Count, audio.Count, shaders.Count);
+        var clipOffsets = Rpf9ClipRecovery.FindCandidateOffsets(source, length,
+            new InlineProgress<long>(position => Report(4, .3 * position / length, $"Scanning clip dictionaries · {position:N0}/{length:N0} bytes")), token);
+        var clips = new List<ArchiveEntry>();
+        for (int i = 0; i < clipOffsets.Count; i++)
+        {
+            clips.AddRange(Rpf9ClipRecovery.RecoverAtOffsets(source, length, new[] { clipOffsets[i] }, clips.Count, token));
+            if (i % 100 == 0) Report(4, .3 + .7 * i / clipOffsets.Count, $"Validating clip dictionaries · {i:N0}/{clipOffsets.Count:N0} candidates");
+        }
+        RecoveryIndexCache.Save("clips", source, clips, $"Full {length:N0}-byte page+16 scan; {clips.Count:N0} clip dictionaries; names only, animation tracks are not decoded.");
+        Report(4, 1, $"Index ready · {models:N0} models · {textures.Count:N0} texture dictionaries · {audio.Count:N0} audio banks · {shaders.Count:N0} shaders · {clips.Count:N0} clip dictionaries");
+        return new(models, textures.Count, audio.Count, shaders.Count, clips.Count);
     }
     private sealed class InlineProgress<T>(Action<T> action) : IProgress<T> { public void Report(T value) => action(value); }
 }

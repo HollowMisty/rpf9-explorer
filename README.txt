@@ -163,6 +163,12 @@ DEFLATE completion/size and chunk-bound checks. The Structure tab describes the
 compiled Xbox container; shader code is never executed. Shader extraction is
 payload recovery and does not reveal the original RPF9 member directory.
 
+Animations: clip dictionaries are listed by the name stored inside them. The
+Details tab shows the animation count and the clip names. Only names are read;
+animation tracks are not decoded and nothing is played. Motion-matcher sets use
+a different record layout and are not listed. Run Scan entire archive to find
+dictionaries beyond the first 16 MiB.
+
 SUPPORTED ARCHIVES AND EXTRACTION
 
 Open little-endian RPF7 and ordinary ZIP: browse, filter, preview and extract

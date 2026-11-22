@@ -85,6 +85,12 @@ Select a supported movie or audio bank to open its preview. Audio banks have a s
 
 Native game audio and Bink movie previews need the corresponding helpers in `Tools`. These helpers are included in the Windows build, but their executables are not included in the source ZIP. Some audio codecs remain unsupported, and decoded audio previews are limited to 120 seconds. For 32 kHz AWC Opus streams, the preview and its saved WAV use the bank's playback rate.
 
+## Browse animation names
+
+Choose **Animations** to list recovered clip dictionaries, or search `type:animation`. Selecting one shows its name, its animation count and the names of its clips. Use **Scan entire archive** first: clip dictionaries are usually beyond the part of an archive that is searched on open.
+
+Only names are read. Animation tracks are not decoded, and there is no animation playback. Motion-matcher sets share the container header but use a different record layout and are not listed.
+
 ## Extract files
 
 Select results and click **Extract selected**. Use Ctrl or Shift to select multiple rows or thumbnails. **Extract results** exports available entries in the current filtered results.

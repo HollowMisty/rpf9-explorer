@@ -78,7 +78,10 @@ public static class ArchiveReader
         nextIndex += models.Count;
         var cachedShaders = RecoveryIndexCache.Load("shaders", path, length, header, nextIndex);
         var shaders = cachedShaders?.Entries ?? Rpf9ShaderRecovery.Recover(path, length, header, nextIndex);
-        var recovered = media.Concat(structured).Concat(textures).Concat(audio).Concat(models).Concat(shaders).ToArray();
+        nextIndex += shaders.Count;
+        var cachedClips = RecoveryIndexCache.Load("clips", path, length, header, nextIndex);
+        var clips = cachedClips?.Entries ?? Rpf9ClipRecovery.Recover(path, length, header, nextIndex);
+        var recovered = media.Concat(structured).Concat(textures).Concat(audio).Concat(models).Concat(shaders).Concat(clips).ToArray();
         if (recovered.Length == 0) return OpaqueRpf(path, length, header, "RPF9", unavailable);
         var metadata = BaseMetadata(header, length);
         metadata["Recovery mode"] = "Validated embedded streams; original RPF9 index remains undecoded";
@@ -90,6 +93,8 @@ public static class ArchiveReader
         metadata["Recovered audio banks"] = audio.Count.ToString("N0");
         metadata["Recovered models"] = models.Count.ToString("N0");
         metadata["Recovered native shader binaries"] = shaders.Count.ToString("N0");
+        metadata["Recovered clip dictionaries"] = clips.Count.ToString("N0");
+        metadata["Clip search coverage"] = cachedClips?.Coverage ?? "First 16 MiB; names only, animation tracks are not decoded";
         metadata["Shader search coverage"] = cachedShaders?.Coverage ?? "First 16 MiB; exact named raw-DEFLATE wrappers and DXBC bounds; no shader execution";
         metadata["Texture search coverage"] = cachedTextures?.Coverage ?? "First 16 MiB; at most 32 dictionaries; supported resource and tile layouts only";
         metadata["Audio search coverage"] = cachedAudio?.Coverage ?? (AwcRecovery.HasCompleteCache(path) ? "Full byte-signature scan cached; AWC header/range validation, not original directory decoding" : "First 128 MiB and last 16 MiB of audio.rpf; validated AWC signatures only");
