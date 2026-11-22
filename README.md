@@ -1,4 +1,4 @@
-# rpf9-explorer 1.1
+# rpf9-explorer 1.2
 
 A Windows desktop viewer for RPF archives and game assets. Open multiple archives or a folder, search textures, preview models and media, export files, and save replacement projects.
 
@@ -73,6 +73,8 @@ Use **Add selected parts** to collect model components across different searches
 
 Load the relevant texture pools if a model appears gray. The text below the preview reports missing materials, lower-resolution mip levels, and layered-material approximations. Layered materials show the first available supported color layer. Some distant models use their native vertex colors when they have no UV coordinates.
 
+Model recovery also supports fragments with absent optional header pointers, supported 16-bit bone-palette declarations, larger validated geometry lists, and zero-radius drawables. Empty declared bounds use the decoded geometry for the preview. These changes do not add animation or rigged export.
+
 Use **Scan entire archive** to rebuild a saved model index after a decoder update. Model recovery supports RPF9 resources with small uncompressed metadata or geometry tails alongside their zlib blocks.
 
 Some models still have missing or unsupported material bindings, even when the pools are loaded. Xbox BCPack decoding is unavailable. Full game shaders, palette effects, animation, and skeleton transforms are not reproduced.
@@ -123,7 +125,7 @@ The publish script creates `dist/rpf9-explorer.exe` as a self-contained Windows 
 
 Bink requires a separately installed licensed Unreal Bink SDK. Opus requires libopus headers and a library. Those external SDKs are not included. Build the helpers before running `build.ps1` to copy them into the published `Tools` folder. For XMA2 audio, put a compatible `ffmpeg.exe` in `Tools` before publishing.
 
-The Windows 1.1 build uses libopus 1.6.1. To use your own static libopus build, pass `-OpusRoot` (the folder containing `include/opus.h`) and `-OpusLibrary` (the x64 `/MT` static library) to `Tools/Build-OpusPreview.ps1`. Compiler and Windows SDK paths can also be supplied as parameters.
+The Windows 1.2 build uses libopus 1.6.1. To use your own static libopus build, pass `-OpusRoot` (the folder containing `include/opus.h`) and `-OpusLibrary` (the x64 `/MT` static library) to `Tools/Build-OpusPreview.ps1`. Compiler and Windows SDK paths can also be supplied as parameters.
 
 Model and texture browsing do not need the media helpers.
 

@@ -275,8 +275,8 @@ public static class Rpf9ModelRecovery
             while (read < prefix.Length) { int n = zlib.Read(prefix[read..]); if (n == 0) return false; read += n; }
             if (fragmentsOnly) return RageModelDecoder.LooksLikeFragment(prefix);
             if (RageModelDecoder.LooksLikeDrawable(prefix) || RageModelDecoder.LooksLikeFragment(prefix)) return true;
-            // A dictionary is a model only when its first value is an embedded drawable; texture dictionaries share the
-            // header. Inflate up to that value's header (two steps at most: the value array entry, then the drawable).
+
+
             byte[] head = prefix.ToArray();
             for (int needed = RageModelDecoder.DrawableDictionaryCheckBytes(head); needed > head.Length;
                  needed = RageModelDecoder.DrawableDictionaryCheckBytes(head))

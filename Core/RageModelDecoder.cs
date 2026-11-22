@@ -66,17 +66,17 @@ public static class RageModelDecoder
     public static bool LooksLikeFragment(ReadOnlySpan<byte> prefix)
     {
         if (prefix.Length < 176 || BinaryPrimitives.ReadUInt64LittleEndian(prefix) != 0) return false;
-        // Page map, drawable and name are always set.
+
         foreach (int at in new[] { 8, 24, 168 })
             if (!SystemPointer(BinaryPrimitives.ReadUInt64LittleEndian(prefix[at..]))) return false;
-        // +16, +32 and +40 are null together in fragments without the extra structures they point to.
+
         foreach (int at in new[] { 16, 32, 40 })
         {
             ulong pointer = BinaryPrimitives.ReadUInt64LittleEndian(prefix[at..]);
             if (pointer != 0 && !SystemPointer(pointer)) return false;
         }
-        // The four 16-bit fields at +48 are not count/capacity pairs: +50 can exceed +48 and +54 is usually larger
-        // than +52. Only their ranges and the +52 <= +54 order hold for every fragment.
+
+
         ushort a = BinaryPrimitives.ReadUInt16LittleEndian(prefix[48..]);
         ushort b = BinaryPrimitives.ReadUInt16LittleEndian(prefix[50..]);
         ushort c = BinaryPrimitives.ReadUInt16LittleEndian(prefix[52..]);
@@ -84,9 +84,9 @@ public static class RageModelDecoder
         return a is > 0 and <= 4096 && b <= 4096 && c <= d && d <= 4096;
     }
 
-    /// <summary>A dictionary header whose first value is an embedded drawable. Texture dictionaries share the header,
-    /// but their values are textures. When the first value lies beyond <paramref name="prefix"/>, the header alone
-    /// decides and the per-child checks reject other dictionaries; see <see cref="DrawableDictionaryCheckBytes"/>.</summary>
+
+
+
     public static bool LooksLikeDrawableDictionary(ReadOnlySpan<byte> prefix)
     {
         int needed = DrawableDictionaryCheckBytes(prefix);
@@ -95,9 +95,9 @@ public static class RageModelDecoder
         return LooksLikeDrawableHeader(prefix[(needed - 176)..], true);
     }
 
-    /// <summary>System bytes needed to check the first value of a dictionary header: through the value array entry, or
-    /// through the first value's 176-byte drawable header once that entry is readable. -1 when the bytes do not start
-    /// with a dictionary header or the first value is not a system pointer.</summary>
+
+
+
     public static int DrawableDictionaryCheckBytes(ReadOnlySpan<byte> prefix)
     {
         if (prefix.Length < 64 || BinaryPrimitives.ReadUInt64LittleEndian(prefix) != 0 ||
@@ -412,7 +412,7 @@ public static class RageModelDecoder
                 for (int i = 0; i < 5; i++)
                 {
                     int list = renderer + i * 16, count = U16(list + 8);
-                    // List 4 holds 80-byte entries and is not capped: a ushort count covers at most 5.2 MiB.
+
                     Check(count == U16(list + 10) && (i == 4 || count <= 4096));
                     if (count > 0) S(list, checked(count * (i < 4 ? 4 : 80)));
                 }
@@ -821,8 +821,8 @@ public static class RageModelDecoder
             {
                 uint hint = (countFlags >> 16) & 0x1FFF;
                 bool constantBinding = (countFlags & 0x20000000) != 0;
-                // Constant binding: hint / 2 is the one bone. Otherwise hint is 0, or 2 when the per-vertex bone
-                // index (vertex slot 20) is a single R16_UINT, which models with more than 256 bones use.
+
+
                 const int BoneIndexSlot = 20, R16Uint = 57;
                 bool wideIndices = sys[fvf + 0xD0 + BoneIndexSlot] == 2 && sys[fvf + 0x104 + BoneIndexSlot] == R16Uint;
                 Require(constantBinding ? (hint & 1) == 0 && (boneCount == 0 || hint / 2 < boneCount) :

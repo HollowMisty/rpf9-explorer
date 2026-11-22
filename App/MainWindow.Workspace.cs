@@ -141,7 +141,7 @@ public partial class MainWindow
         bool recovery = _documents.Values.Any(d => d.Format == "RPF9");
         NoticeBorder.Visibility = recovery ? Visibility.Visible : Visibility.Collapsed;
         NoticeText.Text = recovery ? "RPF9 payload recovery · original directories and archive rebuilding remain unavailable · edits save in separate projects" : "";
-        Title = (_sessionProject == null ? "rpf9-explorer 1.1" : Path.GetFileName(_sessionProject.ProjectPath) + " · rpf9-explorer 1.1");
+        Title = (_sessionProject == null ? "rpf9-explorer 1.2" : Path.GetFileName(_sessionProject.ProjectPath) + " · rpf9-explorer 1.2");
     }
 
     private void BuildWorkspaceTree()
