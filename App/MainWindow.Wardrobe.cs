@@ -23,7 +23,7 @@ public partial class MainWindow
         if (_wardrobeWindow is { } existing) { existing.Activate(); return; }
         var lifetime = new CancellationTokenSource();
         var cancellation = lifetime.Token;
-        var window = _wardrobeWindow = new Window { Owner = this, Title = "Assembled wardrobe", Width = 820, Height = 540, MinWidth = 600, MinHeight = 460, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var window = _wardrobeWindow = new Window { Owner = this, Title = "Assembled wardrobe", Width = 820, Height = 580, MinWidth = 600, MinHeight = 460, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         window.SetResourceReference(BackgroundProperty, "AppSurface"); window.SetResourceReference(ForegroundProperty, "AppText");
         var root = new DockPanel { Margin = new Thickness(18) }; window.Content = root;
         var heading = new TextBlock { Text = "Assemble an authored outfit", FontSize = 19, Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(heading, Dock.Top); root.Children.Add(heading);
@@ -38,8 +38,9 @@ public partial class MainWindow
         var kits = new ComboBox { DisplayMemberPath = "Label", Margin = new Thickness(0, 5, 0, 12), IsEnabled = false, MaxDropDownHeight = 260 };
         var browse = new Button { Content = "Open catalogue file…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
         var allowStatic = new CheckBox { Content = "Allow static preview if native animation drivers are unsupported", Margin = new Thickness(0, 0, 0, 12) };
+        var rigidFace = new CheckBox { Content = "Attach facial parts to head (preview approximation)", Margin = new Thickness(0, 0, 0, 12), ToolTip = "Keeps eyes and other detached facial parts with the head. Native facial deformation is not reproduced." };
         var details = new TextBlock { Text = "Looking for wardrobe catalogues in loaded sources…", TextWrapping = TextWrapping.Wrap };
-        panel.Children.Add(new TextBlock { Text = "Catalogue" }); panel.Children.Add(catalogues); panel.Children.Add(browse); panel.Children.Add(new TextBlock { Text = "Find kit ID or indexed component" }); panel.Children.Add(search); panel.Children.Add(new TextBlock { Text = "Outfit kit" }); panel.Children.Add(kits); panel.Children.Add(allowStatic); panel.Children.Add(details);
+        panel.Children.Add(new TextBlock { Text = "Catalogue" }); panel.Children.Add(catalogues); panel.Children.Add(browse); panel.Children.Add(new TextBlock { Text = "Find kit ID or indexed component" }); panel.Children.Add(search); panel.Children.Add(new TextBlock { Text = "Outfit kit" }); panel.Children.Add(kits); panel.Children.Add(rigidFace); panel.Children.Add(allowStatic); panel.Children.Add(details);
         var assets = (_assetIndex?.Assets ?? []).Where(a => a.Kind == "model" && a.Available).ToArray();
         var lookup = BuildWardrobeLookup(assets); var choices = new List<WardrobeCatalogChoice>(); var kitRows = new List<WardrobeKitChoice>();
 
@@ -95,15 +96,15 @@ public partial class MainWindow
         assemble.Click += async (_, _) =>
         {
             if (catalogues.SelectedItem is not WardrobeCatalogChoice source || kits.SelectedItem is not WardrobeKitChoice kit) return;
-            assemble.IsEnabled = browse.IsEnabled = catalogues.IsEnabled = kits.IsEnabled = search.IsEnabled = allowStatic.IsEnabled = false;
+            assemble.IsEnabled = browse.IsEnabled = catalogues.IsEnabled = kits.IsEnabled = search.IsEnabled = allowStatic.IsEnabled = rigidFace.IsEnabled = false;
             try
             {
-                await AssembleWardrobeKitAsync(source.Catalog, kit.Id, lookup, allowStatic.IsChecked == true, text => details.Text = text, cancellation);
+                await AssembleWardrobeKitAsync(source.Catalog, kit.Id, lookup, allowStatic.IsChecked == true, text => details.Text = text, cancellation, rigidFace.IsChecked == true);
                 if (_modelAssemblyActive) window.Close();
             }
             catch (OperationCanceledException) { }
             catch (Exception ex) when (IsTextureReadFailure(ex)) { details.Text = ex.Message; }
-            finally { if (!cancellation.IsCancellationRequested) { browse.IsEnabled = catalogues.IsEnabled = search.IsEnabled = allowStatic.IsEnabled = true; kits.IsEnabled = kits.Items.Count > 0; assemble.IsEnabled = kits.SelectedItem != null; } }
+            finally { if (!cancellation.IsCancellationRequested) { browse.IsEnabled = catalogues.IsEnabled = search.IsEnabled = allowStatic.IsEnabled = rigidFace.IsEnabled = true; kits.IsEnabled = kits.Items.Count > 0; assemble.IsEnabled = kits.SelectedItem != null; } }
         };
         window.Closed += (_, _) => { lifetime.Cancel(); if (ReferenceEquals(_wardrobeWindow, window)) _wardrobeWindow = null; };
         window.Loaded += async (_, _) =>
@@ -155,7 +156,7 @@ public partial class MainWindow
     }
 
     private async Task AssembleWardrobeKitAsync(RageWardrobeCatalog catalog, uint kitId,
-        Dictionary<ulong, List<WorkspaceAsset>> lookup, bool allowStatic, Action<string> progress, CancellationToken token)
+        Dictionary<ulong, List<WorkspaceAsset>> lookup, bool allowStatic, Action<string> progress, CancellationToken token, bool rigidFacialAttachment = false)
     {
         var resolution = catalog.Resolve(kitId);
         if (resolution.Warnings.Count > 0) throw new InvalidDataException("The authored kit has unresolved references: " + string.Join(" ", resolution.Warnings.Take(4)));
@@ -216,7 +217,7 @@ public partial class MainWindow
                             if (merged == null) continue;
                             var coverage = RageSkinning.GetCompatibility(merged, option.Model.Meshes);
                             if (!coverage.Complete && !(coverage.RequiredBones == 0 && !option.Model.HasBoneBindings)) continue;
-                            bool followsBody = RageSkinning.GetDrivenCompatibility(merged, option.Model.Meshes, [0x6686685C]).Complete;
+                            bool followsBody = RageSkinning.GetDrivenCompatibility(merged, option.Model.Meshes, CharacterPreviewDriverAnchors(merged, rigidFacialAttachment)).Complete;
                             if (compatible[masterIndex][component] is { } current &&
                                 (connected[masterIndex][component] && !followsBody || connected[masterIndex][component] == followsBody && current.Triangles >= option.Triangles)) continue;
                             compatible[masterIndex][component] = option; connected[masterIndex][component] = followsBody;
@@ -243,10 +244,11 @@ public partial class MainWindow
             int connectedParts = connected[masterIndex].Count(value => value);
             if (merged == null || connectedParts < bestConnected || connectedParts == bestConnected && triangles <= bestTriangles || !RageSkinning.GetCompatibility(merged, options.SelectMany(o => o.Model.Meshes)).Complete) continue;
             selected = options; shared = merged; bestTriangles = triangles; bestConnected = connectedParts;
-            drivenCoverage = RageSkinning.GetDrivenCompatibility(merged, options.SelectMany(o => o.Model.Meshes), [0x6686685C]);
+            drivenCoverage = RageSkinning.GetDrivenCompatibility(merged, options.SelectMany(o => o.Model.Meshes), CharacterPreviewDriverAnchors(merged, rigidFacialAttachment));
         }
         bool animationReady = shared != null && bestConnected == groups.Length && drivenCoverage?.Complete == true;
-        string driverStatus = drivenCoverage != null ? $"{drivenCoverage.MatchedBones} / {drivenCoverage.RequiredBones} weighted bone IDs follow the native humanoid root; {Math.Max(0, bestConnected)} / {groups.Length} components are fully connected." : "Humanoid bone ancestry could not be validated.";
+        bool rigidPreview = animationReady && rigidFacialAttachment && CharacterPreviewDriverAnchors(shared!, true).Contains(0x54532D85u);
+        string driverStatus = drivenCoverage != null ? $"{drivenCoverage.MatchedBones} / {drivenCoverage.RequiredBones} weighted bone IDs supported by " + (rigidPreview ? "native body ancestry and a rigid facial attachment preview" : "native humanoid ancestry") + $"; {Math.Max(0, bestConnected)} / {groups.Length} components supported." : "Humanoid bone ancestry could not be validated.";
         if (!animationReady && !allowStatic) throw new InvalidDataException(driverStatus + " Detached native driver bones require supported rig operators or their own animation tracks. Enable static preview to view the complete outfit without applying a partial animation.");
         if (!animationReady) shared = null;
         selected ??= staticOptions.OfType<WardrobeModelOption>().ToArray();
@@ -278,13 +280,15 @@ public partial class MainWindow
             PreviewNameText.Text = $"Authored wardrobe kit {kitId:X8}";
             PreviewNameText.ToolTip = $"Native authored kit {kitId:X8}. Every selected drawable ID is matched against its decoded resource name.";
             ModelAssemblyBanner.Text = $"Authored kit {kitId:X8} · {groups.Length} exact model IDs · " + (shared != null ? "compatible native LODs" : "static native LODs");
+            if (rigidPreview) ModelAssemblyBanner.Text += " · rigid facial attachment preview";
             if (headNames.Count == 1) ModelAssemblyBanner.Text += " · " + headNames.Single();
             string presentation = shared != null
-                ? "Authored wardrobe components use native LODs whose weighted bones all follow the shared humanoid root. Load a native clip dictionary to preview supported bone tracks. Native shader effects and unsupported animation channels are not applied."
+                ? (rigidPreview ? "Authored wardrobe components use native body animation and a rigid head attachment preview for detached facial parts. Native facial drivers are not decoded. " : "Authored wardrobe components use native LODs whose weighted bones all follow the shared humanoid root. ") + "Load a native clip dictionary to preview supported bone tracks. Native shader effects and unsupported animation channels are not applied."
                 : "Authored wardrobe components shown in their native static pose. Some weighted bones are detached native drivers; partial animation is disabled for this preview. Native shader effects are not applied.";
             if (_decodedModel != null) { _decodedModel = _decodedModel with { Name = $"wardrobe_{kitId:X8}", PresentationNote = presentation }; _characterOriginalModel = _decodedModel; }
-            PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · " + (shared != null ? "native humanoid ancestry validated; animation controls available" : "static preview selected; detached driver bones are not animated") + " · native shader effects are not applied";
+            PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · " + (shared != null ? rigidPreview ? "native body animation with rigid facial attachment preview" : "native humanoid ancestry validated; animation controls available" : "static preview selected; detached driver bones are not animated") + " · native shader effects are not applied";
             TextPreview.Text = $"Authored wardrobe kit {kitId:X8}\nThe selected components are resolved by exact 64-bit drawable identifiers and validated native model names.\n{driverStatus}\n\n" + TextPreview.Text;
+            _characterRigidFacialAttachment = rigidPreview;
             if (shared != null) UseCharacterSkeleton(shared);
             else StatusText.Text = $"Wardrobe kit {kitId:X8} assembled as an explicit static preview. " + driverStatus;
             ModelPreview.FitToView();

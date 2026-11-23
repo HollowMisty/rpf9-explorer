@@ -83,6 +83,72 @@ public static class RageSkinning
         return null;
     }
 
+    public static bool IsRigidAttachmentSupported(RageSkeleton skeleton, uint sourceBoneHash, uint detachedRootHash)
+    {
+        ArgumentNullException.ThrowIfNull(skeleton);
+        return TryRigidAttachment(skeleton, sourceBoneHash, detachedRootHash, out _, out _);
+    }
+
+    public static IReadOnlyList<Matrix4x4>? ApplyRigidAttachment(RageSkeleton skeleton,
+        IReadOnlyList<Matrix4x4> modelPose, uint sourceBoneHash, uint detachedRootHash)
+    {
+        ArgumentNullException.ThrowIfNull(skeleton);
+        ArgumentNullException.ThrowIfNull(modelPose);
+        if (modelPose.Count != skeleton.Joints.Count ||
+            !TryRigidAttachment(skeleton, sourceBoneHash, detachedRootHash, out int source, out var subtree)) return null;
+        for (int i = 0; i < modelPose.Count; i++) if (!Finite(modelPose[i])) return null;
+        var delta = skeleton.Joints[source].InverseBindMatrix * modelPose[source];
+        if (!Finite(delta)) return null;
+        var result = new Matrix4x4[modelPose.Count];
+        for (int i = 0; i < result.Length; i++)
+        {
+            result[i] = subtree[i] ? modelPose[i] * delta : modelPose[i];
+            if (!Finite(result[i])) return null;
+        }
+        return Array.AsReadOnly(result);
+    }
+
+    private static bool TryRigidAttachment(RageSkeleton skeleton, uint sourceBoneHash, uint detachedRootHash,
+        out int source, out bool[] subtree)
+    {
+        source = -1; subtree = [];
+        int count = skeleton.Joints.Count, target = -1;
+        if (count is < 1 or > 4096 || sourceBoneHash == detachedRootHash) return false;
+        var hashes = new HashSet<uint>();
+        var children = Enumerable.Range(0, count).Select(_ => new List<int>()).ToArray();
+        for (int i = 0; i < count; i++)
+        {
+            var joint = skeleton.Joints[i];
+            if (!hashes.Add(joint.Hash) || !Finite(joint.InverseBindMatrix) ||
+                !Matrix4x4.Invert(joint.InverseBindMatrix, out var bind) || !Finite(bind)) return false;
+            if (joint.Hash == sourceBoneHash) source = i;
+            if (joint.Hash == detachedRootHash) target = i;
+            if (joint.Parent is int parent)
+            {
+                if (parent < 0 || parent >= count) return false;
+                children[parent].Add(i);
+            }
+        }
+        if (source < 0 || target < 0 || skeleton.Joints[target].Parent != null) return false;
+        var states = new byte[count];
+        for (int i = 0; i < count; i++)
+        {
+            int? at = i;
+            while (at is int current && states[current] == 0)
+            { states[current] = 1; at = skeleton.Joints[current].Parent; }
+            if (at is int cycle && states[cycle] == 1) return false;
+            at = i;
+            while (at is int current && states[current] == 1)
+            { states[current] = 2; at = skeleton.Joints[current].Parent; }
+        }
+        subtree = new bool[count]; var pending = new Queue<int>();
+        subtree[target] = true; pending.Enqueue(target);
+        while (pending.TryDequeue(out int current))
+            foreach (int child in children[current])
+            { subtree[child] = true; pending.Enqueue(child); }
+        return !subtree[source];
+    }
+
     public static IReadOnlyList<Matrix4x4>? CreateModelPose(RageSkeleton skeleton,
         IReadOnlyDictionary<uint, RageAnimationBonePose> localPose)
     {

@@ -29,6 +29,7 @@ public partial class MainWindow
     private double _characterTimeBase, _characterCurrentTime;
     private double? _characterPendingTime;
     private bool _characterFrameBusy, _characterDictionaryUpdating, _characterClipUpdating, _characterTimelineUpdating, _characterDictionaryLoading;
+    private bool _characterRigidFacialAttachment;
     private int _characterSceneVersion, _characterFrameVersion, _characterDictionaryVersion;
     private CancellationTokenSource? _characterPoseCancellation, _characterDictionaryCancellation;
     private string _characterDecodeNote = "Load a clip dictionary to preview its native animation tracks.";
@@ -60,17 +61,46 @@ public partial class MainWindow
         rigs.AddRange(_characterBindings.Where(b => b.Skeleton != null).Select(b => b.Skeleton!).Distinct<RageSkeleton>(ReferenceEqualityComparer.Instance));
         bool humanoidScene = rigs.Any(rig => rig.Joints.Any(j => j.Hash == 0x6686685C && j.Parent == null));
         _characterResolvedBindings = _characterBindings.Select(binding => new CharacterResolvedBinding(binding,
-            binding.Mesh.Skin == null ? null : rigs.FirstOrDefault(rig => CanAnimateCharacterMesh(rig, binding.Mesh, _characterCurrentClip, humanoidScene)))).ToArray();
+            binding.Mesh.Skin == null ? null : rigs.FirstOrDefault(rig => CanAnimateCharacterMesh(rig, binding.Mesh, _characterCurrentClip, humanoidScene, _characterRigidFacialAttachment)))).ToArray();
         _characterJointHashes.Clear();
         foreach (var binding in _characterResolvedBindings)
             if (binding.Skeleton != null) foreach (var joint in binding.Skeleton.Joints) _characterJointHashes.Add(joint.Hash);
     }
 
-    private static bool CanAnimateCharacterMesh(RageSkeleton rig, RageMesh mesh, RageAnimationClip? clip, bool humanoidScene)
+    private static uint[] CharacterPreviewDriverAnchors(RageSkeleton rig, bool rigidFacialAttachment)
+    {
+        if (!rigidFacialAttachment || !rig.Joints.Any(j => j.Hash == 0x6686685C && j.Parent == null) ||
+            !RageSkinning.IsRigidAttachmentSupported(rig, 0x34C53E77, 0x54532D85) ||
+            !CharacterBoneHasDrivenAncestor(rig, 0x34C53E77, new HashSet<uint> { 0x6686685C })) return [0x6686685C];
+        return [0x6686685C, 0x54532D85];
+    }
+
+    private static bool CharacterBoneHasDrivenAncestor(RageSkeleton rig, uint hash, IReadOnlySet<uint> anchors)
+    {
+        int index = -1;
+        for (int i = 0; i < rig.Joints.Count; i++)
+            if (rig.Joints[i].Hash == hash) { if (index >= 0) return false; index = i; }
+        for (int steps = 0; index >= 0 && steps < rig.Joints.Count; steps++)
+        {
+            var joint = rig.Joints[index];
+            if (anchors.Contains(joint.Hash)) return true;
+            index = joint.Parent ?? -1;
+            if (index >= rig.Joints.Count) return false;
+        }
+        return false;
+    }
+
+    private static bool CanAnimateCharacterMesh(RageSkeleton rig, RageMesh mesh, RageAnimationClip? clip,
+        bool humanoidScene, bool rigidFacialAttachment)
     {
         if (!RageSkinning.GetCompatibility(rig, [mesh]).Complete) return false;
-        if (humanoidScene && !RageSkinning.GetDrivenCompatibility(rig, [mesh], [0x6686685C]).Complete) return false;
-        return clip == null || RageSkinning.GetDrivenCompatibility(rig, [mesh], clip.BoneHashes).Complete;
+        var nativeAnchors = CharacterPreviewDriverAnchors(rig, rigidFacialAttachment);
+        if (humanoidScene && !RageSkinning.GetDrivenCompatibility(rig, [mesh], nativeAnchors).Complete) return false;
+        if (clip == null) return true;
+        var clipAnchors = clip.BoneHashes.ToHashSet();
+        if (nativeAnchors.Contains(0x54532D85u) && CharacterBoneHasDrivenAncestor(rig, 0x34C53E77, clipAnchors))
+            clipAnchors.Add(0x54532D85);
+        return RageSkinning.GetDrivenCompatibility(rig, [mesh], clipAnchors).Complete;
     }
 
     private void ClearCharacterPlayback()
@@ -81,7 +111,7 @@ public partial class MainWindow
         _characterDictionaryCancellation?.Cancel(); _characterDictionaryCancellation?.Dispose(); _characterDictionaryCancellation = null;
         _characterBindings = []; _characterResolvedBindings = []; _characterOriginalModel = null; _characterCurrentClip = null;
         _characterJointHashes.Clear();
-        _characterDictionaryLoading = false;
+        _characterDictionaryLoading = false; _characterRigidFacialAttachment = false;
         if (CharacterAnimationPanel != null) CharacterAnimationPanel.Visibility = Visibility.Collapsed;
         if (CharacterClipSelector != null)
         {
@@ -275,6 +305,7 @@ public partial class MainWindow
         if (_characterFrameBusy) { if (seek) { _characterFrameVersion++; _characterPendingTime = time; } return; }
         _characterFrameBusy = true; int scene = _characterSceneVersion, version = ++_characterFrameVersion;
         var bindings = _characterResolvedBindings; var token = _characterPoseCancellation.Token;
+        bool rigidFacialAttachment = _characterRigidFacialAttachment;
         try
         {
             var frame = await Task.Run(() =>
@@ -289,7 +320,13 @@ public partial class MainWindow
                     if (item.Skeleton is { } skeleton)
                     {
                         if (!poses.TryGetValue(skeleton, out var modelPose))
-                            poses[skeleton] = modelPose = skeleton.Joints.Any(j => pose.ContainsKey(j.Hash)) ? RageSkinning.CreateModelPose(skeleton, pose) : null;
+                        {
+                            modelPose = skeleton.Joints.Any(j => pose.ContainsKey(j.Hash)) ? RageSkinning.CreateModelPose(skeleton, pose) : null;
+                            if (modelPose != null && rigidFacialAttachment && CharacterPreviewDriverAnchors(skeleton, true).Contains(0x54532D85u) &&
+                                CharacterBoneHasDrivenAncestor(skeleton, 0x34C53E77, pose.Keys.ToHashSet()))
+                                modelPose = RageSkinning.ApplyRigidAttachment(skeleton, modelPose, 0x34C53E77, 0x54532D85);
+                            poses[skeleton] = modelPose;
+                        }
                         var deformed = modelPose == null ? null : RageSkinning.Deform(mesh, skeleton, modelPose);
                         if (deformed != null) { mesh = deformed; animated++; } else kept++;
                     }
@@ -305,7 +342,8 @@ public partial class MainWindow
             _characterCurrentTime = time;
             _characterTimelineUpdating = true; CharacterTimeline.Value = time; _characterTimelineUpdating = false;
             CharacterTimeText.Text = $"{time:0.00} / {clip.DurationSeconds:0.00} s";
-            CharacterAnimationStatus.Text = $"{clip.Name} · {frame.Animated:N0} animated mesh parts · {frame.Static:N0} static or incompatible parts · {clip.FrameRate:0.##} fps source";
+            CharacterAnimationStatus.Text = $"{clip.Name} · {frame.Animated:N0} animated mesh parts · {frame.Static:N0} static or incompatible parts · {clip.FrameRate:0.##} fps source" +
+                (rigidFacialAttachment ? " · rigid facial attachment preview" : "");
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) when (ex is IOException or InvalidDataException or NotSupportedException or ArgumentException or OverflowException or InvalidOperationException)
@@ -335,5 +373,6 @@ public partial class MainWindow
             ? "The mesh weights need a compatible skeleton and tracked native bone ancestry. Detached procedural drivers stay static."
             : weighted == 0 ? "These parts have no decoded skin weights. Select supported character components to animate them."
             : $"{_characterDecodeNote} · {compatible:N0} of {weighted:N0} weighted mesh parts have a compatible skeleton.";
+        if (_characterRigidFacialAttachment) CharacterAnimationStatus.Text += " · rigid facial attachment preview";
     }
 }

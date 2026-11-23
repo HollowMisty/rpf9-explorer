@@ -193,6 +193,10 @@ Native detail variants with connected humanoid bone ancestry are preferred.
 Detached facial and garment drivers are unsupported. Enable the explicit static
 preview option to inspect an outfit that requires them; partial animation is
 disabled rather than applying inconsistent transforms to its clothing or eyes.
+The optional Attach facial parts to head setting is a preview approximation.
+It keeps detached facial parts with the head through their stored bind frames;
+it does not change the native hierarchy or reproduce native facial deformation.
+Unsupported garment drivers still need a supported native LOD or static preview.
 Load texture pools for supported color textures. Full cloth simulation, body
 morphs, facial animation and game animation blending remain unsupported.
 

@@ -57,6 +57,7 @@ public partial class MainWindow
         var used = model.Meshes.Where(m => m.ShaderIndex != null).Select(m => m.ShaderIndex!.Value).ToHashSet();
         ulong? wardrobeAlbedo = WardrobeAlbedoKey(document, modelEntry);
         var wardrobeColorMaterials = (model.Materials ?? []).Where(m => used.Contains(m.ShaderIndex) && ModelTextureBindings.ColorTextures(m).Count > 0).Select(m => m.ShaderIndex).ToArray();
+        if (wardrobeColorMaterials.Length == 0 && used.Count == 1 && model.Meshes.Any(m => m.TexCoords != null)) wardrobeColorMaterials = used.ToArray();
         int materialCount = Math.Max(1, used.Count), maximumDimension = materialCount > 128 ? 256 : materialCount > 32 ? 512 : 1024;
         var resolved = new Dictionary<ulong, ResolvedModelImage>();
         long modelSourceStamp = File.GetLastWriteTimeUtc(document.SourcePath).Ticks;
@@ -75,9 +76,11 @@ public partial class MainWindow
                 continue;
             }
             var colorTextures = ModelTextureBindings.ColorTextures(material);
-            if (wardrobeAlbedo is > 0 && wardrobeColorMaterials.Length == 1 && wardrobeColorMaterials[0] == material.ShaderIndex && colorTextures.Count > 0)
+            if (wardrobeAlbedo is > 0 && wardrobeColorMaterials.Length == 1 && wardrobeColorMaterials[0] == material.ShaderIndex)
             {
-                var reference = colorTextures[0].Reference with { OpaqueId64 = wardrobeAlbedo.Value, OpaqueId32 = 0 };
+                var reference = colorTextures.Count > 0
+                    ? colorTextures[0].Reference with { OpaqueId64 = wardrobeAlbedo.Value, OpaqueId32 = 0 }
+                    : new RageTextureReference(0, -1, -1, -1, wardrobeAlbedo.Value, 0, 0);
                 colorTextures = new[] { new ModelColorTexture(reference, "authored wardrobe albedo", false, false) }.Concat(colorTextures).ToArray();
             }
             if (colorTextures.Count == 0)
