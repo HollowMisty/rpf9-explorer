@@ -545,6 +545,8 @@ public static class TtpfReader
         if (BcpackDecoder.IsSupportedCodec(chunk.Codec))
             return BcpackDecoder.Decode(packed, chunk.Codec, chunk.Size, allowProvisional, history, ct);
         if (packed.Length < 6) throw new InvalidDataException("Truncated zlib chunk.");
+        if (packed.AsSpan().IndexOfAnyExcept((byte)0) < 0)
+            throw new InvalidDataException($"Texture chunk at 0x{chunk.Source:X} is empty. Its source data is missing or incomplete.");
         using var data = new MemoryStream(packed, false); using var zlib = new ZLibStream(data, CompressionMode.Decompress);
         byte[] decoded = new byte[chunk.Size]; int copied = 0; uint a = 1, b = 0;
         while (copied < decoded.Length)

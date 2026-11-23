@@ -13,6 +13,7 @@ internal sealed record MeshPreviewPart(string Name, IReadOnlyList<Vector3> Posit
 {
     public IReadOnlyList<Vector2>? TexCoords { get; init; }
     public ImageSource? Texture { get; init; }
+    public Color? SlodColor { get; init; }
     public IReadOnlyList<uint>? VertexColors { get; init; }
     public VehicleMaterialKind MaterialKind { get; init; } = VehicleMaterialKind.Default;
     public Color? PaintColor { get; init; }
@@ -29,6 +30,7 @@ public partial class ModelViewport : UserControl
     public int PresentedTriangles { get; private set; }
     public int PresentedTexturedMeshes { get; private set; }
     public int PresentedVertexColoredMeshes { get; private set; }
+    public int PresentedSlodColoredMeshes { get; private set; }
 
     public ModelViewport() { InitializeComponent(); UpdateCamera(); }
 
@@ -37,7 +39,7 @@ public partial class ModelViewport : UserControl
         var group = new Model3DGroup();
         var transparentModels = new List<GeometryModel3D>();
         var bounds = Rect3D.Empty;
-        int vertices = 0, triangles = 0, textured = 0, colored = 0;
+        int vertices = 0, triangles = 0, textured = 0, colored = 0, baseColored = 0;
         long colorAtlasPixels = 0;
         foreach (var part in meshes)
         {
@@ -66,6 +68,10 @@ public partial class ModelViewport : UserControl
                 textured++;
                 hasImageTexture = true;
             }
+            else if (part.SlodColor is Color baseColor)
+            {
+                brush = new SolidColorBrush(baseColor); baseColored++;
+            }
             else if (part.TexCoords == null && part.VertexColors is { } colors && colors.Count == part.Positions.Count
                 && TryVertexColorPreview(part, colors, 4_000_000 - colorAtlasPixels) is { } preview)
             {
@@ -89,6 +95,7 @@ public partial class ModelViewport : UserControl
         PresentedVertices = vertices; PresentedTriangles = triangles;
         PresentedTexturedMeshes = textured;
         PresentedVertexColoredMeshes = colored;
+        PresentedSlodColoredMeshes = baseColored;
         _initialCenter = new Point3D(bounds.X + bounds.SizeX / 2, bounds.Y + bounds.SizeY / 2, bounds.Z + bounds.SizeZ / 2);
         _radius = Math.Max(.01, Math.Sqrt(bounds.SizeX * bounds.SizeX + bounds.SizeY * bounds.SizeY + bounds.SizeZ * bounds.SizeZ) / 2);
         ModelInfoText.Text = $"{vertices:N0} vertices · {triangles:N0} triangles · drag to orbit, wheel to zoom";
@@ -97,7 +104,7 @@ public partial class ModelViewport : UserControl
     public void Clear()
     {
         GeometryRoot.Content = null;
-        PresentedVertices = PresentedTriangles = PresentedTexturedMeshes = PresentedVertexColoredMeshes = 0;
+        PresentedVertices = PresentedTriangles = PresentedTexturedMeshes = PresentedVertexColoredMeshes = PresentedSlodColoredMeshes = 0;
     }
 
     internal void FitToView()

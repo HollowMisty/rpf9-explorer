@@ -226,10 +226,12 @@ public partial class MainWindow
                     throw new NotSupportedException("Adding this component would exceed the combined geometry preview limit; it was left out.");
                 token.ThrowIfCancellationRequested();
                 IReadOnlyDictionary<int, ImageSource> resolved = new Dictionary<int, ImageSource>();
+                IReadOnlyDictionary<int, Color> nativeColors = new Dictionary<int, Color>();
                 string textureDetails;
                 try
                 {
                     resolved = await ResolveModelTexturesAsync(document, entry, model, resource.System, resource.Graphics, token);
+                    nativeColors = new Dictionary<int, Color>(_modelNativeSlodColors);
                     missingMaterials += _modelMissingTextureMaterials; layeredMaterials += _modelLayerPreviewMaterials;
                     textureDetails = _modelTextureDetails;
                 }
@@ -256,7 +258,8 @@ public partial class MainWindow
                         { texture = null; notes.Add(componentLabel + " · an additional texture exceeded the combined image budget; this mesh uses a neutral preview."); }
                         else { images.Add(texture); previewImageBytes += bytes; }
                     }
-                    var partPreview = new MeshPreviewPart(meshName, mesh.Positions, mesh.Indices) { TexCoords = mesh.TexCoords, VertexColors = mesh.VertexColors, Texture = texture };
+                    Color? baseColor = mesh.ShaderIndex is int nativeShader && nativeColors.TryGetValue(nativeShader, out var authoredColor) ? authoredColor : null;
+                    var partPreview = new MeshPreviewPart(meshName, mesh.Positions, mesh.Indices) { TexCoords = mesh.TexCoords, VertexColors = mesh.VertexColors, Texture = texture, SlodColor = baseColor };
                     preview.Add(partPreview);
                     characterBindings.Add(new(mesh with { Name = meshName, ShaderIndex = shader }, model.Skeleton, partPreview));
                 }
@@ -293,7 +296,7 @@ public partial class MainWindow
         ModelAssemblyBanner.Text = $"Manual assembly · {components.Count} selected components shown" + (skipped.Count > 0 ? $" · {skipped.Count} omitted (see Assembly details)" : "")
             + ". Source coordinates are retained. Parts are not automatically identified or fitted into an authored character; alternate parts may overlap.";
         ModelAssemblyBanner.Visibility = Visibility.Visible;
-        PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · {missingMaterials:N0} unresolved materials · native shader effects are approximated; animation support is shown above";
+        PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · {ModelPreview.PresentedSlodColoredMeshes:N0} with SLOD color approximation · {missingMaterials:N0} unresolved materials · native shader effects are approximated; animation support is shown above";
         StatusText.Text = $"Previewing {components.Count:N0} selected model components together · {skipped.Count:N0} skipped · export combined geometry with Export OBJ.";
     }
 

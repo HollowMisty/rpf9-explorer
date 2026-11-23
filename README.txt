@@ -290,3 +290,12 @@ and choose Assemble vehicle. Export OBJ saves assembled geometry.
 Optional vehicles.json configuration supplies paint, scales and part names.
 Generic fallback wheels are preview choices; complete native shading is not
 reproduced. See README.md for details.
+
+CHARACTER TEXTURES
+
+Finish downloading the relevant data/ttdb/peds texture pools, then assemble
+the outfit again. Use Scan entire archive to index its appearance metadata.
+Actual images are preferred. Supported materials without an available image
+can use their native far-distance SLOD color as a uniform approximation.
+The preview counts these separately and reports unresolved materials.
+Palette and composite appearances and full surface shading remain unsupported.

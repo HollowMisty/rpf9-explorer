@@ -264,6 +264,8 @@ public partial class MainWindow
             selection.Add((new FileRow(best.Entry) { Asset = best, ModelLod = option.Lod }, best.Document));
             if (stateAlbedos[component] != 0) albedos[(best.SourcePath, best.Entry.Path, best.Entry.Offset, best.Entry.ResourceDrawableOffset)] = stateAlbedos[component];
         }
+        progress("Reading native appearance colors…");
+        await LoadWardrobeAppearanceAssetsAsync(token);
         token.ThrowIfCancellationRequested(); _wardrobeAlbedos.Clear(); foreach (var entry in albedos) _wardrobeAlbedos.Add(entry.Key, entry.Value);
         try
         {
@@ -286,7 +288,7 @@ public partial class MainWindow
                 ? (rigidPreview ? "Authored wardrobe components use native body animation and a rigid head attachment preview for detached facial parts. Native facial drivers are not decoded. " : "Authored wardrobe components use native LODs whose weighted bones all follow the shared humanoid root. ") + "Load a native clip dictionary to preview supported bone tracks. Native shader effects and unsupported animation channels are not applied."
                 : "Authored wardrobe components shown in their native static pose. Some weighted bones are detached native drivers; partial animation is disabled for this preview. Native shader effects are not applied.";
             if (_decodedModel != null) { _decodedModel = _decodedModel with { Name = $"wardrobe_{kitId:X8}", PresentationNote = presentation }; _characterOriginalModel = _decodedModel; }
-            PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · " + (shared != null ? rigidPreview ? "native body animation with rigid facial attachment preview" : "native humanoid ancestry validated; animation controls available" : "static preview selected; detached driver bones are not animated") + " · native shader effects are not applied";
+            PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · {ModelPreview.PresentedSlodColoredMeshes:N0} with SLOD color approximation · {_modelMissingTextureMaterials:N0} unresolved materials · " + (shared != null ? rigidPreview ? "native body animation with rigid facial attachment preview" : "native humanoid ancestry validated; animation controls available" : "static preview selected; detached driver bones are not animated") + " · native shader effects are not applied";
             TextPreview.Text = $"Authored wardrobe kit {kitId:X8}\nThe selected components are resolved by exact 64-bit drawable identifiers and validated native model names.\n{driverStatus}\n\n" + TextPreview.Text;
             _characterRigidFacialAttachment = rigidPreview;
             if (shared != null) UseCharacterSkeleton(shared);

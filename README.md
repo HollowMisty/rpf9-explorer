@@ -87,6 +87,10 @@ Use **Add selected parts** to collect model components across different searches
 
 Load the relevant texture pools if a model appears gray. The text below the preview reports missing materials, lower-resolution mip levels, and layered-material approximations. Layered materials show the first available supported color layer. Some distant models use their native vertex colors when they have no UV coordinates.
 
+For an unfinished download, the model archive can be complete while its sibling texture pools still contain missing regions. Finish downloading the relevant files in `data/ttdb/peds` for character textures, then select the model or assemble the outfit again. The app checks changed texture pools on the next preview. Empty compressed chunks and unreadable pool indexes are reported in the assembly details.
+
+Some outfit materials have a native SLOD color intended for far-distance display. If no color image is available, supported opaque appearances without a palette, tags or additional parameters can use that value as a uniform color approximation. This does not reproduce surface texture detail. The app counts these separately from textured mesh parts. Palette-based and composite appearances remain unresolved. Normal, specular and material ID maps are not used as substitute color textures.
+
 Model recovery also supports fragments with absent optional header pointers, supported 16-bit bone-palette declarations, larger validated geometry lists, and zero-radius drawables. Empty declared bounds use the decoded geometry for the preview. OBJ export saves geometry and UV coordinates, including the current displayed pose when animation is active; it does not contain a skeleton or animation tracks.
 
 Use **Scan entire archive** to rebuild a saved model index after a decoder update. Model recovery supports RPF9 resources with small uncompressed metadata or geometry tails alongside their zlib blocks.
@@ -101,7 +105,7 @@ Some models still have missing or unsupported material bindings, even when the p
 4. Expand **Character animation** above the model. Choose an animation dictionary and clip, or use **Load animations** to open a recovered clip dictionary or an indexed RPF.
 5. Click **Play**, use **Pause** or **Stop**, toggle **Loop**, or drag the timeline to inspect a pose. Orbit, pan, and zoom work during playback.
 
-![Assembled outfit with native animation playback and the optional rigid facial attachment preview](docs/screenshots/wardrobe-animation.jpg)
+![Assembled outfit with textures, native SLOD color approximations and optional rigid facial attachment](docs/screenshots/wardrobe-animation.jpg)
 
 Wardrobe selection follows the catalogue's native drawable and appearance identifiers, including inherited preset states. Assembly checks native skeleton hashes, bind matrices, and weighted bone ancestry. It prefers native detail variants that follow the shared humanoid skeleton. Kits requiring unsupported detached drivers are refused for animation. Enable the explicit static preview option to inspect those outfits in their stored pose. Parts with unavailable model data are reported. A kit ID or a shared component name does not establish a character's identity or guarantee that a kit contains a complete body.
 

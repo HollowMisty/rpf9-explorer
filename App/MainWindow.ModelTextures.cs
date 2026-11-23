@@ -52,12 +52,13 @@ public partial class MainWindow
         RageModel model, ReadOnlyMemory<byte> system, ReadOnlyMemory<byte> graphics, CancellationToken token)
     {
         var result = new Dictionary<int, ImageSource>(); var notes = new List<string>();
-        _modelTextureDetails = ""; _modelLayerPreviewMaterials = _modelMissingTextureMaterials = _modelOpaquePreviewMaterials = 0;
+        _modelTextureDetails = ""; _modelNativeSlodColors.Clear(); _modelLayerPreviewMaterials = _modelMissingTextureMaterials = _modelOpaquePreviewMaterials = 0;
         if (model.Materials == null) { _modelTextureDetails = "No supported native material table was decoded."; return result; }
         var used = model.Meshes.Where(m => m.ShaderIndex != null).Select(m => m.ShaderIndex!.Value).ToHashSet();
         ulong? wardrobeAlbedo = WardrobeAlbedoKey(document, modelEntry);
         var wardrobeColorMaterials = (model.Materials ?? []).Where(m => used.Contains(m.ShaderIndex) && ModelTextureBindings.ColorTextures(m).Count > 0).Select(m => m.ShaderIndex).ToArray();
         if (wardrobeColorMaterials.Length == 0 && used.Count == 1 && model.Meshes.Any(m => m.TexCoords != null)) wardrobeColorMaterials = used.ToArray();
+        var wardrobeConstantMaterials = wardrobeColorMaterials.Length == 0 && used.Count == 1 ? used.ToArray() : wardrobeColorMaterials;
         int materialCount = Math.Max(1, used.Count), maximumDimension = materialCount > 128 ? 256 : materialCount > 32 ? 512 : 1024;
         var resolved = new Dictionary<ulong, ResolvedModelImage>();
         long modelSourceStamp = File.GetLastWriteTimeUtc(document.SourcePath).Ticks;
@@ -68,8 +69,17 @@ public partial class MainWindow
         foreach (var material in (model.Materials ?? []).Where(m => used.Contains(m.ShaderIndex)))
         {
             token.ThrowIfCancellationRequested();
+            Color? authoredColor = WardrobeSlodColor(wardrobeAlbedo, material.ShaderIndex, wardrobeConstantMaterials);
+            bool UseSlodColor()
+            {
+                if (authoredColor is not Color color) return false;
+                _modelNativeSlodColors[material.ShaderIndex] = color;
+                notes.Add($"Material {material.ShaderIndex}: native albedo asset {wardrobeAlbedo:X16}, SLOD color #{color.R:X2}{color.G:X2}{color.B:X2}; uniform far-distance color approximation. Full surface texture and shader effects are not reproduced.");
+                return true;
+            }
             if (!model.Meshes.Any(m => m.ShaderIndex == material.ShaderIndex && m.TexCoords != null))
             {
+                if (UseSlodColor()) continue;
                 if (model.Meshes.Any(m => m.ShaderIndex == material.ShaderIndex && m.VertexColors != null))
                     notes.Add($"Material {material.ShaderIndex}: native vertex-color data; texture coordinates are absent and palette/tint effects are not simulated.");
                 else { notes.Add($"Material {material.ShaderIndex}: no validated texture coordinates or vertex colors."); _modelMissingTextureMaterials++; }
@@ -85,6 +95,7 @@ public partial class MainWindow
             }
             if (colorTextures.Count == 0)
             {
+                if (UseSlodColor()) continue;
                 notes.Add($"Material {material.ShaderIndex}: no recognized color sampler; hashes {string.Join(", ", material.Textures.Select(t => t.ParameterHash.ToString("X8")))}.");
                 _modelMissingTextureMaterials++; continue;
             }
@@ -115,7 +126,10 @@ public partial class MainWindow
                 break;
             }
             if (!result.ContainsKey(material.ShaderIndex))
-            { _modelMissingTextureMaterials++; notes.Add($"Material {material.ShaderIndex}: {string.Join("; ", unavailable.Distinct().Take(8))}"); }
+            {
+                if (UseSlodColor()) continue;
+                _modelMissingTextureMaterials++; notes.Add($"Material {material.ShaderIndex}: {string.Join("; ", unavailable.Distinct().Take(8))}");
+            }
         }
         _modelTextureDetails = string.Join(Environment.NewLine, notes); return result;
 
@@ -206,7 +220,10 @@ public partial class MainWindow
             }
             var residentDefault = await FindResidentDefaultAsync(document, key, nameHash, token);
             if (residentDefault != null) return residentDefault;
-            return new(null, failures.Count > 0 ? string.Join(" / ", failures.Distinct().Take(3)) : "native key not found in loaded or sibling texture pools");
+            string missing = "native key not found in loaded or sibling texture pools";
+            if (_streamingCatalog is { SkippedPools: > 0 } catalog && _streamingPoolDirectory == directory)
+                missing += $"; {catalog.SkippedPools} sibling texture pools could not be indexed (incomplete or unsupported data)";
+            return new(null, failures.Count > 0 ? string.Join(" / ", failures.Distinct().Take(3)) : missing);
         }
 
         async Task<ResolvedModelImage?> PoolImageAsync(StreamingTextureLocation location, HashSet<(string, int, long, long)> attempted, List<string> failures)
