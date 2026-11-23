@@ -153,7 +153,7 @@ int wmain(int argc,wchar_t** argv) {
         if (!maxSeconds || maxSeconds>120) throw std::runtime_error("Preview limit must be 1 to 120 seconds.");
         Source source(argv[1],number(argv[2]),number(argv[3]));
         Sound sound=inspect(source,number(argv[4]));
-        const int outputRate = sound.codec == 0x0B && sound.rate != 32000 ? OpusDecodeRate : sound.rate;
+        const int outputRate = sound.codec == 0x0B ? OpusDecodeRate : sound.rate;
         const uint64_t maxFrames = maxSeconds * outputRate;
         int error=0;
         std::unique_ptr<OpusDecoder,decltype(&opus_decoder_destroy)> decoder(sound.codec==0x0B?opus_decoder_create(OpusDecodeRate,sound.channels,&error):nullptr,opus_decoder_destroy);

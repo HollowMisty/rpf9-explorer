@@ -12,7 +12,10 @@ public sealed record AwcStreamInfo(int Index, uint Id, int SampleRate, long Samp
     public int Channels { get; init; }
     public long DeclaredInterleavedSamples => Samples;
     public long? OpusFrameCountPerChannel { get; init; }
-    public int DecodedSampleRate => Codec == 0x0B && SampleRate != 32000 ? 48000 : SampleRate;
+    // Opus frame counts (format +0x0C, or the declared count) are 48 kHz frames even when the rate field says
+    // 32 kHz: over 1,598,151 plain Opus streams, packet samples exceed the declared count by 1,920..2,879 at both
+    // rates, so dividing a 32 kHz stream's count by 32,000 reported durations 1.5x too long.
+    public int DecodedSampleRate => Codec == 0x0B ? 48000 : SampleRate;
     public double DurationSeconds => DecodedSampleRate > 0
         ? (double)(Codec == 0x0B ? OpusFrameCountPerChannel ?? Samples / Math.Max(1, Channels) : Samples) / DecodedSampleRate : 0;
     public bool IsStreamed { get; init; }
