@@ -11,7 +11,8 @@ public enum VehicleMaterialKind
     LensAlpha,
     Glass,
     Emissive,
-    Tyre
+    Tyre,
+    Hidden
 }
 
 public sealed record VehicleWheelMount(string BoneName, Vector3 Pivot, bool IsRight, bool IsRear);
@@ -200,7 +201,8 @@ public static class VehicleAssembly
 
     private static readonly HashSet<uint> LensAlphaShaders =
     [
-        0x389206D1u
+        0x389206D1u,
+        0x4DC0AC6Au
     ];
 
     private static readonly HashSet<uint> GlassShaders =
@@ -214,6 +216,7 @@ public static class VehicleAssembly
     [
         0x5A693BBEu,
         0x29648098u,
+        0x59C1D684u,
         0xF119F925u,
         0xE515A6E7u
     ];
@@ -240,6 +243,7 @@ public static class VehicleAssembly
         if (material == null) return VehicleMaterialKind.Default;
         uint h = material.ShaderHash;
         uint p = material.PresetHash;
+        if (h == 0xFC34F08Bu || p == 0xFC34F08Bu) return VehicleMaterialKind.Hidden;
         if (TyreShaders.Contains(h) || TyreShaders.Contains(p)) return VehicleMaterialKind.Tyre;
         if (LensAlphaShaders.Contains(h) || LensAlphaShaders.Contains(p)) return VehicleMaterialKind.LensAlpha;
         if (GlassShaders.Contains(h) || GlassShaders.Contains(p)) return VehicleMaterialKind.Glass;
