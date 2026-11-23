@@ -25,8 +25,10 @@ public static class PayloadIndexBuilder
             return cached.Entries.Count;
         }
         var previous = cached ?? RecoveryIndexCache.LoadLegacyModels(source, length, header);
-        var models = previous?.Entries.ToList() ?? new List<ArchiveEntry>();
-        var known = models.Select(entry => entry.Offset).ToHashSet();
+        var models = (previous?.Entries ?? Array.Empty<ArchiveEntry>())
+            .DistinctBy(entry => (entry.Offset, entry.ResourceDrawableOffset)).ToList();
+        var known = models.Select(entry => (entry.Offset, entry.ResourceDrawableOffset)).ToHashSet();
+        var standalone = models.Where(entry => entry.ResourceDrawableOffset is null).Select(entry => entry.Offset).ToHashSet();
         var offsets = Rpf9ModelRecovery.FindCandidateOffsets(source, progress:
             new InlineProgress<long>(position => progress?.Report(new(.35 * position / length,
                 $"Discovering model containers · {position:N0}/{length:N0} bytes"))), cancellationToken: token);
@@ -36,11 +38,16 @@ public static class PayloadIndexBuilder
             for (int i = 0; i < offsets.Count; i++)
             {
                 token.ThrowIfCancellationRequested();
-                if (!known.Contains(offsets[i]))
+                if (!standalone.Contains(offsets[i]))
                 {
                     var entries = Rpf9ModelRecovery.RecoverAtOffsets(source, length, new[] { offsets[i] }, models.Count, token);
-                    if (models.Count + entries.Count > 500_000) throw new InvalidDataException("The model index exceeds 500,000 entries. Index a smaller source.");
-                    models.AddRange(entries); accepted += entries.Count;
+                    foreach (var entry in entries)
+                    {
+                        if (!known.Add((entry.Offset, entry.ResourceDrawableOffset))) continue;
+                        if (models.Count >= Rpf9ModelRecovery.MaxRecoveredModels) throw new InvalidDataException("The model index exceeds 500,000 entries. Index a smaller source.");
+                        models.Add(entry with { Index = models.Count }); accepted++;
+                        if (entry.ResourceDrawableOffset is null) standalone.Add(entry.Offset);
+                    }
                 }
                 if (i % 50 == 0 || i + 1 == offsets.Count)
                     progress?.Report(new(.35 + .65 * (i + 1) / Math.Max(1, offsets.Count),
@@ -52,6 +59,7 @@ public static class PayloadIndexBuilder
                     accepted = 0;
                 }
             }
+            token.ThrowIfCancellationRequested();
         }
         catch (OperationCanceledException)
         {
@@ -59,7 +67,6 @@ public static class PayloadIndexBuilder
                 "Dictionary-aware model scan canceled. Validated models are retained; discovery will resume on reopen.");
             throw;
         }
-        token.ThrowIfCancellationRequested();
         var ordered = models.OrderBy(entry => entry.Offset).ThenBy(entry => entry.ResourceDrawableOffset ?? -1)
             .ThenBy(entry => entry.Path, StringComparer.Ordinal).Select((entry, index) => entry with { Index = index }).ToArray();
         RecoveryIndexCache.Save("models", source, ordered,
