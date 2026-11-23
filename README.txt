@@ -168,6 +168,12 @@ including containers with stored (uncompressed) 64 KiB blocks, and lists one
 only when its CHKS checksum matches. Both section lists (LSCH... and PMAP...)
 are accepted. Field meanings are not decoded.
 
+Animations: clip dictionaries are listed by the name stored inside them. The
+Details tab shows the animation count and the clip names. Only names are read;
+animation tracks are not decoded and nothing is played. Motion-matcher sets use
+a different record layout and are not listed. Run Scan entire archive to find
+dictionaries beyond the first 16 MiB.
+
 SUPPORTED ARCHIVES AND EXTRACTION
 
 Open little-endian RPF7 and ordinary ZIP: browse, filter, preview and extract

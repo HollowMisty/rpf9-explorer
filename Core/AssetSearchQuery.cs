@@ -55,6 +55,7 @@ public sealed class AssetSearchQuery
         "images" or "textures" or "texture" or "image" => kind == "image",
         "models" or "model" => kind == "model", "sounds" or "audio" => kind == "audio",
         "shaders" or "shader" => kind == "shader", "containers" or "dictionary" => kind == "dictionary",
+        "animations" or "clips" => kind == "animation",
         "all" => true, _ => string.Equals(kind, value, StringComparison.OrdinalIgnoreCase)
     };
     private static bool Number(long actual, string expression)

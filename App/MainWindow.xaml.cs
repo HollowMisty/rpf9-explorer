@@ -187,7 +187,8 @@ public partial class MainWindow : Window
             var isImage = entry.Extension is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".dds";
             var isMetadata = entry.Extension == ".psin";
             var isShader = entry.Compression == "Recovered raw deflate shader";
-            var limit = (isImage || isMetadata || isShader) && entry.Size <= 16 * 1024 * 1024 ? 16 * 1024 * 1024 : 256 * 1024;
+            var isClips = entry.Compression == "Recovered clip dictionary";
+            var limit = (isImage || isMetadata || isShader || isClips) && entry.Size <= 16 * 1024 * 1024 ? 16 * 1024 * 1024 : 256 * 1024;
             var bytes = await Task.Run(() => document.ReadPreview(entry, limit, cancellation.Token), cancellation.Token);
             if (cancellation.IsCancellationRequested || _document != document) return;
             HexPreview.Text = FormatHex(bytes.AsSpan(0, Math.Min(bytes.Length, 65536)));
@@ -195,6 +196,12 @@ public partial class MainWindow : Window
             {
                 TextPreview.Text = ShaderPreview.Describe(bytes); TextTab.Header = "Structure";
                 PreviewTabs.SelectedItem = TextTab; PreviewFootnoteText.Text = "Compiled native shader · static container inspection · no execution"; return;
+            }
+            if (isClips && Rpf9ClipRecovery.Decode(bytes) is { } clips)
+            {
+                TextPreview.Text = $"Clip dictionary\n\n{clips.Name}\n\n{clips.Animations:N0} animations · {clips.Clips.Count:N0} clips\n\n" + string.Join("\n", clips.Clips.Order(StringComparer.Ordinal));
+                TextTab.Header = "Details"; PreviewTabs.SelectedItem = TextTab;
+                PreviewFootnoteText.Text = "Names only · animation tracks are not decoded"; return;
             }
             if (isMetadata)
             {
@@ -430,12 +437,13 @@ public partial class MainWindow : Window
         public string EntryToolTip => (Asset?.SourcePath ?? "") + "\n" + (Asset?.LogicalPath ?? Entry.Path) + (Entry.Limitation == null ? "" : "\n" + Entry.Limitation)
             + (Asset?.PoolTexture?.PreviewNote is string note ? "\n" + note : "");
         public string OffsetLabel => Entry.Offset.ToString("X10");
-        public string TypeLabel => Asset?.IsTextureChild == true ? "Texture" : Entry.Compression switch { "Recovered AWC" => "Audio bank", "Recovered model" => "Model", "Recovered texture dictionary" => "Texture folder", "RDS5 texture" => "Streaming texture", "Recovered raw deflate shader" => "Native shader", _ => Entry.Extension };
+        public string TypeLabel => Asset?.IsTextureChild == true ? "Texture" : Entry.Compression switch { "Recovered AWC" => "Audio bank", "Recovered model" => "Model", "Recovered texture dictionary" => "Texture folder", "RDS5 texture" => "Streaming texture", "Recovered raw deflate shader" => "Native shader", "Recovered clip dictionary" => "Clip dictionary", _ => Entry.Extension };
         public string DisplayName => Asset?.Texture?.Name ?? (Entry.ResourceDrawableOffset is int drawable
             ? Entry.Name.Split("_at_", StringSplitOptions.None)[0] + $" · child {drawable:X}"
             : Entry.Compression.StartsWith("Recovered Bink", StringComparison.Ordinal)
             ? "Movie " + Entry.Name.Split('_').ElementAtOrDefault(1) + Entry.Extension
             : Entry.Compression == "Recovered model" ? Entry.Name.Split("_at_", StringSplitOptions.None)[0]
+            : Entry.Compression == "Recovered clip dictionary" ? Entry.Name[..Entry.Name.LastIndexOf("_at_", StringComparison.Ordinal)]
             : Entry.Compression == "Recovered texture dictionary" ? "Texture dictionary " + Entry.Offset.ToString("X10")
             : Entry.Compression == "Recovered AWC" ? "Audio bank " + Entry.Name.Split('_').ElementAtOrDefault(1)
             : Entry.Extension == ".psin" ? "Metadata " + Entry.Offset.ToString("X10") + ".psin" : Entry.Name);

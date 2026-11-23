@@ -87,6 +87,25 @@ else if (args[0] is "models" or "proof-models" or "retry-models" or "fragments")
     File.WriteAllText(Path.Combine(output, reportName), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true, IgnoreReadOnlyProperties = true }));
     Console.WriteLine(JsonSerializer.Serialize(new { recovered = entries.Count, elapsedSeconds = watch.Elapsed.TotalSeconds, cache = RecoveryIndexCache.CachePath("models", source) }));
 }
+else if (args[0] == "clips")
+{
+    // Writes one line per clip dictionary: offset, name, animation count, then the clip names, tab-separated.
+    var entries = Rpf9ClipRecovery.RecoverAtOffsets(source, length, Rpf9ClipRecovery.FindCandidateOffsets(source, length));
+    RecoveryIndexCache.Save("clips", source, entries, $"Full {length:N0}-byte page+16 scan; {entries.Count:N0} clip dictionaries; names only, animation tracks are not decoded.");
+    using var file = File.OpenRead(source); using var writer = new StreamWriter(Path.GetFullPath(args[2]));
+    foreach (var entry in entries)
+    {
+        using var system = new MemoryStream();
+        foreach (var segment in entry.Segments!)
+        {
+            file.Position = segment.Offset; byte[] packed = new byte[segment.StoredSize]; file.ReadExactly(packed);
+            using var zlib = new System.IO.Compression.ZLibStream(new MemoryStream(packed), System.IO.Compression.CompressionMode.Decompress); zlib.CopyTo(system);
+        }
+        var dictionary = Rpf9ClipRecovery.Decode(system.GetBuffer().AsSpan(0, (int)system.Length))!;
+        writer.WriteLine($"{entry.Offset:X}\t{dictionary.Name}\t{dictionary.Animations}\t{string.Join('\t', dictionary.Clips)}");
+    }
+    Console.WriteLine(JsonSerializer.Serialize(new { clipDictionaries = entries.Count, elapsedSeconds = watch.Elapsed.TotalSeconds }));
+}
 else if (args[0] == "shaders")
 {
     string output = Path.GetFullPath(args[2]); Directory.CreateDirectory(output);

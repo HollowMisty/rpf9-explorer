@@ -83,11 +83,17 @@ Some models still have missing or unsupported material bindings, even when the p
 
 Select a supported movie or audio bank to open its preview. Audio banks have a stream selector. Playback controls include play, pause, seek, loop, and volume. Movie previews also have frame stepping and full screen.
 
-Native game audio and Bink movie previews need the corresponding helpers in `Tools`. These helpers are included in the Windows build, but their executables are not included in the source ZIP. Some audio codecs remain unsupported, and decoded audio previews are limited to 120 seconds. For 32 kHz AWC Opus streams, the preview and its saved WAV use the bank's playback rate.
+Native game audio and Bink movie previews need the corresponding helpers in `Tools`. These helpers are included in the Windows build, but their executables are not included in the source ZIP. Some audio codecs remain unsupported, and decoded audio previews are limited to 120 seconds. AWC Opus previews and exported WAV files play at 48 kHz.
 
 ## Browse PSIN metadata
 
 **Scan entire archive** also finds PSIN metadata containers anywhere in an RPF9 file, including containers with 64 KiB blocks that are stored without compression. A container is listed only when its CHKS checksum matches. The Structure tab shows its sections; both section lists (`LSCH…` and `PMAP…`) are accepted. The meaning of the binary fields is not decoded, and a PSIN container is not a script.
+
+## Browse animation names
+
+Choose **Animations** to list recovered clip dictionaries, or search `type:animation`. Selecting one shows its name, its animation count and the names of its clips. Use **Scan entire archive** first: clip dictionaries are usually beyond the part of an archive that is searched on open.
+
+Only names are read. Animation tracks are not decoded, and there is no animation playback. Motion-matcher sets share the container header but use a different record layout and are not listed.
 
 ## Extract files
 
