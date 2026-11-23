@@ -122,6 +122,11 @@ transforms, physics and fragment
 assembly are not applied. Skinned
 resources are explicitly labelled as raw bind-pose geometry.
 
+Core integrations can select a model's level of detail with
+RageModelDecoder.Decode(system, graphics, drawableOffset, lod), where lod is
+0 to 3. The returned model records the selection in Lod. Existing calls and
+the desktop preview use LOD 0. An unavailable LOD returns null.
+
 Textures: observed AMD-tiled native dictionaries, BC1–BC7 and supported raw/
 floating-point formats. Includes HDR, arrays, cube faces and 3D-volume slices.
 Choose a texture, then a slice/face where applicable. Export DDS preserves source
