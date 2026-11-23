@@ -139,14 +139,6 @@
        </Grid>
       </TabItem>
       <TabItem x:Name="ModelTab" Header="Model" IsEnabled="False"><DockPanel>
-       <Expander x:Name="CharacterAnimationPanel" DockPanel.Dock="Top" Header="Character animation" Visibility="Collapsed" IsExpanded="True" Margin="8,6">
-        <StackPanel Margin="0,5,0,0">
-         <DockPanel Margin="0,0,0,5"><Button Content="Load animations…" Click="LoadCharacterAnimations_Click" DockPanel.Dock="Right" Padding="8,3" Margin="6,0,0,0"/><ComboBox x:Name="AnimationDictionarySelector" DisplayMemberPath="Label" SelectionChanged="AnimationDictionary_SelectionChanged" AutomationProperties.Name="Animation dictionary" MinWidth="130"/></DockPanel>
-         <ComboBox x:Name="CharacterClipSelector" DisplayMemberPath="Name" SelectionChanged="CharacterClip_SelectionChanged" AutomationProperties.Name="Character animation clip"/>
-         <DockPanel Margin="0,5,0,0"><TextBlock x:Name="CharacterTimeText" DockPanel.Dock="Right" Text="0.00 / 0.00 s" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{DynamicResource AppMutedText}"/><StackPanel DockPanel.Dock="Left" Orientation="Horizontal"><Button x:Name="CharacterPlayButton" Content="Play" Click="CharacterPlay_Click" Padding="9,3" IsEnabled="False"/><Button x:Name="CharacterStopButton" Content="Stop" Click="CharacterStop_Click" Padding="9,3" IsEnabled="False" Margin="5,0"/><CheckBox x:Name="CharacterLoopCheckBox" Content="Loop" IsChecked="True" VerticalAlignment="Center" Margin="4,0,8,0"/></StackPanel><Slider x:Name="CharacterTimeline" Minimum="0" Maximum="1" Value="0" IsEnabled="False" IsMoveToPointEnabled="True" ValueChanged="CharacterTimeline_ValueChanged" VerticalAlignment="Center" AutomationProperties.Name="Animation position"/></DockPanel>
-         <TextBlock x:Name="CharacterAnimationStatus" Foreground="{DynamicResource AppMutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,5,0,2"/>
-        </StackPanel>
-       </Expander>
        <StackPanel DockPanel.Dock="Bottom" Margin="7,2,7,6"><TextBlock x:Name="ModelAssemblyBanner" Visibility="Collapsed" TextWrapping="Wrap" Foreground="{DynamicResource AppWarningText}" Background="{DynamicResource AppWarningBackground}" Padding="7" Margin="0,0,0,5"/><WrapPanel HorizontalAlignment="Right"><Button x:Name="AssembleVehicleButton" Content="Assemble vehicle" Click="AssembleVehicle_Click" Padding="9,3" Margin="0,0,6,0" Visibility="Collapsed" ToolTip="Mount wheels, brakes and optional vehicles.json config parts at this vehicle's skeleton wheel pivots"/><Button Content="Preview selected together" Click="PreviewTogether_Click" Padding="9,3" Margin="0,0,6,0" IsEnabled="{Binding SelectedItems.Count, ElementName=FilesGrid, Converter={StaticResource ModelAssemblySelection}}"/><Button Content="Export OBJ…" Click="ModelExport_Click" Padding="9,3"/></WrapPanel></StackPanel>
        <local:ModelViewport x:Name="ModelPreview"/>
       </DockPanel></TabItem>

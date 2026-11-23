@@ -22,8 +22,7 @@ Ctrl/Shift-select two or more model rows and choose Preview together to view the
 selected components in their original coordinates. Export OBJ saves the combined
 static geometry. Assembly details lists included and omitted components. Body
 morphs and strand hair remain unsupported. File > Assembled wardrobe resolves
-authored outfit kits from supported PSIN/0DRP catalogues. The Character animation
-panel plays supported native bone tracks on compatible decoded skin weights.
+authored outfit kits from supported PSIN/0DRP catalogues as static previews.
 Add selected parts collects components across different searches, up to 64 parts.
 Preview queued parts shows the collected components; Clear parts empties the queue.
 Extract selected model entries writes standard OBJ geometry for the selected
@@ -120,15 +119,14 @@ validated geometry and supported UVs. Exact native asset keys resolve supported
 diffusetex color textures in base-game and pack-local data\ttdb pools. Float2 and
 shader-proven SNORM16 UV coordinates are supported; unavailable texture codecs or
 unresolved bindings retain neutral materials. Full game shader effects, bone
-physics and full game shaders are not reproduced. Supported character parts can
-use compatible native skeletons and clips through the Character animation panel.
-Unavailable cloth, facial and other animation tracks remain explicitly unsupported.
+physics and full game shaders are not reproduced. Models use their stored pose.
+Character animation playback is not included.
 
 Core integrations can select a model's level of detail with
 RageModelDecoder.Decode(system, graphics, drawableOffset, lod), where lod is
 0 to 3. The returned model records the selection in Lod. Existing calls and
 individual desktop model previews use LOD 0. Wardrobe assembly can select a
-compatible native detail variant. An unavailable LOD returns null.
+readable native detail variant. An unavailable LOD returns null.
 
 Textures: observed AMD-tiled native dictionaries, BC1–BC7 and supported raw/
 floating-point formats. Includes HDR, arrays, cube faces and 3D-volume slices.
@@ -177,28 +175,17 @@ only when its CHKS checksum matches. Both section lists (LSCH... and PMAP...)
 are accepted. Field meanings are not decoded.
 
 Animations: clip dictionaries are listed by the name stored inside them. The
-Details tab shows the animation count and clip names. Select or assemble a
-character, then choose a dictionary and clip in Character animation. Play,
-pause, stop, loop and timeline scrubbing use supported native translation,
-rotation and scale tracks. Export OBJ saves the displayed pose, without a rig.
-Unsupported mesh parts remain static and are counted in the playback status.
-Motion-matcher sets use a different record layout and are not listed. Run Scan
-entire archive to find dictionaries beyond the initial search range.
+Details tab shows the animation count and clip names only. Playback is not
+included. Motion-matcher sets use a different record layout and are not listed.
+Run Scan entire archive to find dictionaries beyond the initial search range.
 
 Assembled wardrobe: load the catalogue and model sources, then choose File >
 Assembled wardrobe. Pick a native kit and assemble it. Native drawable IDs,
-appearance keys, model names, skeleton joints and bind matrices are checked.
-The kit's ID does not establish character identity or guarantee a complete body.
-Native detail variants with connected humanoid bone ancestry are preferred.
-Detached facial and garment drivers are unsupported. Enable the explicit static
-preview option to inspect an outfit that requires them; partial animation is
-disabled rather than applying inconsistent transforms to its clothing or eyes.
-The optional Attach facial parts to head setting is a preview approximation.
-It keeps detached facial parts with the head through their stored bind frames;
-it does not change the native hierarchy or reproduce native facial deformation.
-Unsupported garment drivers still need a supported native LOD or static preview.
-Load texture pools for supported color textures. Full cloth simulation, body
-morphs, facial animation and game animation blending remain unsupported.
+appearance keys and model names are checked. The most detailed readable native
+variants are shown together in their stored coordinates. A kit's ID does not
+establish character identity or guarantee a complete body. Load texture pools
+for supported color textures. Body morphs, cloth simulation and strand hair
+remain unsupported.
 
 Sources may be read while downloading. Only complete validated resource ranges
 are usable. Indexes saved while a writer is active stay partial. Refresh after

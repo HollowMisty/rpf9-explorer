@@ -75,7 +75,7 @@ Choose **Models**, search for a model, and select it. The preview loads supporte
 
 Drag with the left mouse button to orbit, drag with the right mouse button to pan, and use the mouse wheel to zoom. **Reset view** resets the camera. **Export OBJ** saves decoded geometry and supported UV coordinates.
 
-Core integrations can call `RageModelDecoder.Decode(system, graphics, drawableOffset, lod)` with `lod` from 0 to 3 to choose a model's level of detail. The returned model records the selection in `Lod`. Individual model previews use LOD 0. Wardrobe assembly can select another native LOD when needed for complete skeleton support. An unavailable LOD returns `null`.
+Core integrations can call `RageModelDecoder.Decode(system, graphics, drawableOffset, lod)` with `lod` from 0 to 3 to choose a model's level of detail. The returned model records the selection in `Lod`. Individual model previews use LOD 0. Wardrobe assembly chooses the most detailed readable native variant within its preview limits. An unavailable LOD returns `null`.
 
 Character parts inside drawable dictionaries appear as individual model results using their native names. Searching `lucia` can find explicitly named Lucia parts, while shared body parts and player components may have names such as `hand_fr1`, `feet_fr1`, or `player_story000_00`. Free-text searches for `body`, `arms` or `legs` also include the shared skin components. These names do not by themselves identify an authored character or outfit. Different detail variants may share a name; source offsets distinguish them.
 
@@ -91,27 +91,19 @@ For an unfinished download, the model archive can be complete while its sibling 
 
 Some outfit materials have a native SLOD color intended for distant views. If no color image is available, supported opaque appearances can use that value as a uniform color approximation. Supported palette selections also use their native palette SLOD color when all three selected tint channels agree. This does not reproduce surface texture detail or full palette shading. The app counts these separately from textured mesh parts. Composite appearances and ambiguous material assignments remain unresolved. Normal, specular and material ID maps are not used as substitute color textures.
 
-Model recovery also supports fragments with absent optional header pointers, supported 16-bit bone-palette declarations, larger validated geometry lists, and zero-radius drawables. Empty declared bounds use the decoded geometry for the preview. OBJ export saves geometry and UV coordinates, including the current displayed pose when animation is active; it does not contain a skeleton or animation tracks.
+Model recovery also supports fragments with absent optional header pointers, supported 16-bit bone-palette declarations, larger validated geometry lists, and zero-radius drawables. Empty declared bounds use the decoded geometry for the preview. OBJ export saves geometry and UV coordinates, in their stored pose; it does not contain a skeleton or animation tracks.
 
 Use **Scan entire archive** to rebuild a saved model index after a decoder update. Model recovery supports RPF9 resources with small uncompressed metadata or geometry tails alongside their zlib blocks.
 
 Some models still have missing or unsupported material bindings, even when the pools are loaded. Unsupported Xbox BCPack codecs (BC6H/BC7) remain unavailable. Full game shaders and palette effects are not reproduced.
 
-## Assemble outfits and play character animations
+## Assemble outfits
 
-1. Load the archives containing the wardrobe catalogue, character components, shared character skeletons, and clip dictionaries. Load the relevant texture pools for supported color textures.
-2. Use **Scan entire archive** if the required metadata or animations have not been indexed. Open **File > Assembled wardrobe**.
-3. Choose a catalogue, search by kit ID or native component name, then click **Assemble outfit**. You can also open an extracted PSIN/0DRP wardrobe catalogue. The indexed model count is a lookup hint; every selected model is decoded and its native identifier is checked again during assembly.
-4. Expand **Character animation** above the model. Choose an animation dictionary and clip, or use **Load animations** to open a recovered clip dictionary or an indexed RPF.
-5. Click **Play**, use **Pause** or **Stop**, toggle **Loop**, or drag the timeline to inspect a pose. Orbit, pan, and zoom work during playback.
+1. Load the archives containing the wardrobe catalogue and character components, along with the relevant texture pools.
+2. Use **Scan entire archive** if the required models or metadata have not been indexed. Open **File > Assembled wardrobe**.
+3. Choose a catalogue, search by kit ID or native component name, then click **Assemble outfit**. You can also open an extracted PSIN/0DRP wardrobe catalogue.
 
-![Assembled outfit with textures, native SLOD color approximations and optional rigid facial attachment](docs/screenshots/wardrobe-animation.jpg)
-
-Wardrobe selection follows the catalogue's native drawable and appearance identifiers, including inherited preset states. Assembly checks native skeleton hashes, bind matrices, and weighted bone ancestry. It prefers native detail variants that follow the shared humanoid skeleton. Kits requiring unsupported detached drivers are refused for animation. Enable the explicit static preview option to inspect those outfits in their stored pose. Parts with unavailable model data are reported. A kit ID or a shared component name does not establish a character's identity or guarantee that a kit contains a complete body.
-
-**Attach facial parts to head (preview approximation)** is optional. It keeps supported detached eyes and facial parts with the head using their stored bind frames. It does not change the native skeleton or decode the game's facial drivers. The preview and assembly details identify this approximation. It does not enable unsupported garment drivers; those still require a supported native detail variant or static preview.
-
-Supported native bone translation, rotation, and scale tracks drive decoded skin weights. Strict playback requires every weighted bone to follow a tracked native ancestor. Playback reports animated and static mesh parts. Body morphs, cloth simulation, native facial and garment drivers, strand hair, motion matching, and complete game animation blending are not reproduced. Unsupported tracks are reported separately.
+Wardrobe selection follows the catalogue's native drawable and appearance identifiers, including inherited preset states. Each selected model is decoded and its native identifier is checked again. Models appear together in their stored coordinates. Body morphs, cloth simulation and strand hair are not reproduced. Unavailable components are reported. A kit ID or shared component name does not establish a character's identity or guarantee a complete body.
 
 Archives can be read while another app is downloading them. Only complete, validated resource ranges are usable. Indexes created while a writer has the file open remain partial; refresh them after the download finishes. An allocated file size does not mean all its data has arrived.
 
@@ -129,7 +121,7 @@ Native game audio and Bink movie previews need the corresponding helpers in `Too
 
 Choose **Animations** to list recovered clip dictionaries, or search `type:animation`. Selecting one shows its name, its animation count and the names of its clips. Use **Scan entire archive** first: clip dictionaries are usually beyond the part of an archive that is searched on open.
 
-The list preview shows dictionary metadata and clip names. To play supported tracks, select or assemble a character model, then use its **Character animation** panel. Motion-matcher sets use a different record layout and are not listed as ordinary clip dictionaries.
+The list preview shows dictionary metadata and clip names only. Animation playback is not included. Motion-matcher sets use a different record layout and are not listed as ordinary clip dictionaries.
 
 ## Extract files
 

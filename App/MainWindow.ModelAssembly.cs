@@ -42,7 +42,6 @@ public partial class MainWindow
 
     private void ClearModelAssemblyState()
     {
-        ClearCharacterPlayback();
         _modelAssemblyActive = false;
         _modelAssemblySourcePaths.Clear();
         if (ModelAssemblyBanner != null) { ModelAssemblyBanner.Text = ""; ModelAssemblyBanner.Visibility = Visibility.Collapsed; }
@@ -124,7 +123,7 @@ public partial class MainWindow
         return PreviewModelAssemblySourcesAsync(selection.Select(x => (x.Row, x.Document!)).ToArray());
     }
 
-    private async Task PreviewModelAssemblySourcesAsync((FileRow Row, ArchiveDocument Document)[] selection, bool enableCharacterPlayback = true)
+    private async Task PreviewModelAssemblySourcesAsync((FileRow Row, ArchiveDocument Document)[] selection)
     {
         var models = selection.Where(x => x.Row.Entry.Compression == "Recovered model").ToArray();
         if (models.Length > 96) { StatusText.Text = "Select at most 96 model components for one bounded preview."; return; }
@@ -151,7 +150,7 @@ public partial class MainWindow
             _previewCancellation = CancellationTokenSource.CreateLinkedTokenSource(work.Token);
             WorkProgress.IsIndeterminate = false; WorkProgress.Maximum = models.Length; WorkProgress.Value = 0;
             var token = _previewCancellation.Token;
-            _activePreview = BuildModelAssemblyAsync(selection, token, enableCharacterPlayback);
+            _activePreview = BuildModelAssemblyAsync(selection, token);
             await _activePreview;
         }
         catch (OperationCanceledException)
@@ -174,12 +173,11 @@ public partial class MainWindow
         }
     }
 
-    private async Task BuildModelAssemblyAsync((FileRow Row, ArchiveDocument Document)[] selection, CancellationToken token, bool enableCharacterPlayback)
+    private async Task BuildModelAssemblyAsync((FileRow Row, ArchiveDocument Document)[] selection, CancellationToken token)
     {
         const int maxVertices = 2_000_000, maxTriangles = 2_000_000, maxMeshes = 4096;
         const long maxPreviewImageBytes = 128L * 1024 * 1024;
         var meshes = new List<RageMesh>(); var materials = new List<RageMaterial>(); var preview = new List<MeshPreviewPart>();
-        var characterBindings = new List<CharacterPreviewBinding>();
         var components = new List<AssemblyComponent>(); var skipped = new List<string>(); var notes = new List<string>();
         var images = new HashSet<ImageSource>(ReferenceEqualityComparer.Instance);
         var seen = new HashSet<(string Source, string Entry, int? Drawable)>();
@@ -261,7 +259,6 @@ public partial class MainWindow
                     Color? baseColor = mesh.ShaderIndex is int nativeShader && nativeColors.TryGetValue(nativeShader, out var authoredColor) ? authoredColor : null;
                     var partPreview = new MeshPreviewPart(meshName, mesh.Positions, mesh.Indices) { TexCoords = mesh.TexCoords, VertexColors = mesh.VertexColors, Texture = texture, SlodColor = baseColor };
                     preview.Add(partPreview);
-                    characterBindings.Add(new(mesh with { Name = meshName, ShaderIndex = shader }, model.Skeleton, partPreview));
                 }
                 vertices += componentVertices; triangles += componentTriangles;
                 components.Add(new(componentLabel, document, entry, model, map, textureDetails));
@@ -283,12 +280,11 @@ public partial class MainWindow
         }
         _decodedModel = new RageModel("Selected_model_assembly", meshes.ToArray(), min, max) {
             IsFragment = components.Any(c => c.Model.IsFragment), HasBoneBindings = components.Any(c => c.Model.HasBoneBindings),
-            Materials = materials.ToArray(), PresentationNote = "User-selected model assembly. Source coordinates, UVs, colors and component names are retained. No authored character identity or missing parts are inferred. Compatible native character clips can be previewed separately. OBJ exports the displayed geometry and UVs; native shader effects and animation tracks are not exported." };
+            Materials = materials.ToArray(), PresentationNote = "User-selected model assembly. Source coordinates, UVs, colors and component names are retained. No authored character identity or missing parts are inferred. OBJ exports the displayed geometry and UVs; native shader effects and animation tracks are not exported." };
         _modelAssemblyActive = true;
         _modelMissingTextureMaterials = missingMaterials; _modelLayerPreviewMaterials = layeredMaterials;
         _modelTextureDetails = string.Join("\n\n", components.Select(c => c.Label + "\n" + c.TextureDetails));
         ModelPreview.ShowMeshes(preview);
-        if (enableCharacterPlayback) BindCharacterPreview(characterBindings);
         ModelTab.IsEnabled = true; PreviewTabs.SelectedItem = ModelTab;
         PreviewNameText.Text = $"Selected model assembly · {components.Count:N0} components";
         PreviewNameText.ToolTip = "Only the user-selected components are included. Original character membership is unknown.";
@@ -296,7 +292,7 @@ public partial class MainWindow
         ModelAssemblyBanner.Text = $"Manual assembly · {components.Count} selected components shown" + (skipped.Count > 0 ? $" · {skipped.Count} omitted (see Assembly details)" : "")
             + ". Source coordinates are retained. Parts are not automatically identified or fitted into an authored character; alternate parts may overlap.";
         ModelAssemblyBanner.Visibility = Visibility.Visible;
-        PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · {ModelPreview.PresentedSlodColoredMeshes:N0} with SLOD color approximation · {missingMaterials:N0} unresolved materials · native shader effects are approximated; animation support is shown above";
+        PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · {ModelPreview.PresentedSlodColoredMeshes:N0} with SLOD color approximation · {missingMaterials:N0} unresolved materials · native shader effects are approximated; static preview";
         StatusText.Text = $"Previewing {components.Count:N0} selected model components together · {skipped.Count:N0} skipped · export combined geometry with Export OBJ.";
     }
 

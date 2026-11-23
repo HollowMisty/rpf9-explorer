@@ -171,12 +171,10 @@ public partial class MainWindow
         TextPreview.Text = $"Native model: {model.Name}\n\n{(model.IsDictionaryChild ? "Selected drawable dictionary component · original coordinates retained\n" : "")}{model.Meshes.Count:N0} mesh parts\n{ModelPreview.PresentedVertices:N0} vertices\n{ModelPreview.PresentedTriangles:N0} triangles\n{model.Meshes.Count(m => m.TexCoords != null):N0} mesh parts with validated UV coordinates\n{model.Materials?.Count ?? 0:N0} native material records" + (wheelMounts.Count > 0 ? $"\n{wheelMounts.Count:N0} skeleton wheel mounts detected ({string.Join(", ", wheelMounts.Select(w => w.BoneName))})" : "") + $"\n\nGeometry comes from the source vertex and meshlet index buffers. The preview uses a neutral material. Material texture IDs are retained, but unresolved bindings are not rendered. Export OBJ saves validated geometry and supported UV coordinates.\n\n{model.PresentationNote}";
         PreviewMetaText.Text = $"{model.Name} · {ModelPreview.PresentedVertices:N0} vertices · {ModelPreview.PresentedTriangles:N0} triangles";
         PreviewFootnoteText.Text = model.PresentationNote ?? "Geometry preview · neutral material · drag to orbit, right-drag to pan, wheel to zoom";
-        IReadOnlyDictionary<int, ImageSource> characterTextures = new Dictionary<int, ImageSource>();
         try
         {
             var textures = await ResolveModelTexturesAsync(document, entry, model, decoded.System, decoded.Graphics, token);
             if (token.IsCancellationRequested || _decodedModel != model || _document != document) return;
-            characterTextures = textures;
             if (textures.Count > 0)
             {
                 ModelPreview.ShowMeshes(model.Meshes.Select(m => new MeshPreviewPart(m.Name, m.Positions, m.Indices) {
@@ -197,13 +195,6 @@ public partial class MainWindow
         {
             if (!token.IsCancellationRequested) PreviewFootnoteText.Text = "Geometry preview · streaming texture lookup unavailable: " + ex.Message;
         }
-        if (!token.IsCancellationRequested && _decodedModel == model && _document == document)
-            BindCharacterPreview(model.Meshes.Select(m => new CharacterPreviewBinding(m, model.Skeleton,
-                new MeshPreviewPart(m.Name, m.Positions, m.Indices) {
-                    TexCoords = m.TexCoords, VertexColors = m.VertexColors,
-                    Texture = m.ShaderIndex is int sh && characterTextures.TryGetValue(sh, out var image) ? image : null,
-                    MaterialKind = m.ShaderIndex is int si && materialKinds.TryGetValue(si, out var kind) ? kind : VehicleMaterialKind.Default,
-                    PaintColor = paintColor })).ToArray());
     }
 
     private async Task PreviewAudioAsync(ArchiveDocument document, ArchiveEntry entry, CancellationToken token)

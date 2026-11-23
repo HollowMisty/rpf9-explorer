@@ -39,7 +39,7 @@ public partial class MainWindow : Window
         DataContext = this;
         FilesGrid.ItemsSource = _rows;
         Closing += WaitForPoolCopyOnClosing;
-        Closed += (_, _) => { ClearCharacterPlayback(); _previewCancellation?.Cancel(); CancelThumbnails(); _searchTimer?.Stop(); ClosePlayer(); _workCancellation?.Cancel(); };
+        Closed += (_, _) => { _previewCancellation?.Cancel(); CancelThumbnails(); _searchTimer?.Stop(); ClosePlayer(); _workCancellation?.Cancel(); };
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -368,7 +368,6 @@ public partial class MainWindow : Window
         CancelButton.Visibility = busy && cancelable ? Visibility.Visible : Visibility.Collapsed;
         CancelButton.IsEnabled = true;
         UpdateExtractButtons();
-        UpdateCharacterPlaybackControls();
         CommandManager.InvalidateRequerySuggested();
     }
     private void UpdateExtractButtons()
