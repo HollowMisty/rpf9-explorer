@@ -804,8 +804,8 @@ public static class RageModelDecoder
             int clusterCount = checked((int)(countFlags & (bonePalette ? 0xFFFFU : 0x7FFFFFFFU)));
             int triangles = checked((int)U32(index, 4)), refs = checked((int)U32(index, 8));
             uint binding = U32(sys, descriptor + 12);
-            // The descriptor holds the low 16 bits of the triangle count and the binding's low 7 bits hold the rest;
-            // bit 7 of the binding is the bone-palette marker.
+
+
             bool paletteWithoutMarker = (binding & 0x80) == 0 && (countFlags & 0xFFFF0000) == 0xC0000000U;
             Require(clusterCount is > 0 and <= 2048 && triangles > 0 && refs > 0 &&
                 clusterCount == U16(sys, descriptor + 8) && triangles == (U16(sys, descriptor + 10) | (int)(binding & 127) << 16) &&
@@ -849,7 +849,7 @@ public static class RageModelDecoder
             {
                 int at = 12 + cluster * 16;
                 uint packed = U32(index, at), offsets = U32(index, at + 4);
-                // Bits 14 and 15 are bit 16 of the vertex and triangle starts, which pass 65,535 in the largest meshes.
+
                 int vertices = (int)(packed & 127) + 1, count = (int)((packed >> 7) & 127) + 1;
                 int vertexStart = (int)(offsets & 65535 | (packed >> 14 & 1) << 16);
                 int triangleStart = (int)(offsets >> 16 | (packed >> 15 & 1) << 16);

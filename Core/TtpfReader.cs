@@ -94,7 +94,7 @@ public static class TtpfReader
     public static RageTexturePixels DecodeTexturePreview(string path, int index, int maximumDimension, bool allowProvisional, CancellationToken cancellationToken = default)
         => DecodeTexturePreview(path, index, maximumDimension, allowProvisional, null, cancellationToken);
 
-    /// <summary>Preview decode with external BCPack initial-history tables (<see cref="BcpackHistory.Load"/>); null uses the built-in tables.</summary>
+
     public static RageTexturePixels DecodeTexturePreview(string path, int index, int maximumDimension, bool allowProvisional, BcpackHistory? history, CancellationToken cancellationToken = default)
     {
         if (maximumDimension is < 32 or > 4096) throw new ArgumentOutOfRangeException(nameof(maximumDimension));
@@ -115,7 +115,7 @@ public static class TtpfReader
     public static byte[] CreateDds(string path, int index, bool allowProvisional, CancellationToken cancellationToken = default)
         => CreateDds(path, index, allowProvisional, null, cancellationToken);
 
-    /// <summary>DDS export with external BCPack initial-history tables (<see cref="BcpackHistory.Load"/>); null uses the built-in tables.</summary>
+
     public static byte[] CreateDds(string path, int index, bool allowProvisional, BcpackHistory? history, CancellationToken cancellationToken = default)
     {
         var source = ReadIndexCached(path, cancellationToken); var native = Select(source, index);
@@ -157,7 +157,7 @@ public static class TtpfReader
     public static RageTexturePixels DecodeTexturePixels(string path, int index, int slice, bool allowProvisional, CancellationToken cancellationToken = default)
         => DecodeTexturePixels(path, index, slice, allowProvisional, null, cancellationToken);
 
-    /// <summary>Pixel decode with external BCPack initial-history tables (<see cref="BcpackHistory.Load"/>); null uses the built-in tables.</summary>
+
     public static RageTexturePixels DecodeTexturePixels(string path, int index, int slice, bool allowProvisional, BcpackHistory? history, CancellationToken cancellationToken = default)
     {
         var source = ReadIndex(path, cancellationToken); var native = Select(source, index); var t = native.Info;
@@ -170,8 +170,8 @@ public static class TtpfReader
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, t.PreviewWidth, t.PreviewHeight, t.DxgiFormat);
     }
 
-    // Bulk export calls CreateDds once per texture: re-parsing the whole index each time made a pool's export
-    // quadratic in its texture count. The last index is reused while the file's path, length and write time match.
+
+
     sealed record CachedIndex(string Path, long Length, DateTime Written, Index Index);
     static CachedIndex? lastIndex;
     static Index ReadIndexCached(string path, CancellationToken ct)

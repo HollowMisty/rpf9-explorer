@@ -42,8 +42,8 @@ public static class Rpf9ModelRecovery
         while (position < end)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            // Every stream starts on a 16-byte boundary after 16 zero bytes. Most start 16 bytes into a 4 KiB page, but a
-            // small resource can follow the previous stream inside the same page, so check every boundary.
+
+
             int lead = position >= 16 ? 16 : 0;
             int count = (int)Math.Min(ScanBlock, end - position);
             int readCount = (int)Math.Min(lead + count + 65536L, file.Length - position + lead);

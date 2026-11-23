@@ -1,9 +1,9 @@
-// Fixed codec constant tables for the clean-room Xbox Series DirectStorage BCPack decoder.
-// Provenance: recovered clean-room from public specifications (US Patent 11,234,023, Khronos Data
-// Format Specification for BC1/BC3/BC4/BC5, and public silicon-rans MDU rANS frequency tables)
-// plus algebraic/statistical fitting of codec-level rank and initial history constants.
-// Contains codec-level constants only — zero game texture data or asset bytes.
-// Confirmed and provisional built-in history entries are kept strictly separate.
+
+
+
+
+
+
 
 namespace RpfPreview.Core;
 
@@ -21,10 +21,10 @@ internal readonly record struct Bc5HistoryEntry(byte R0, byte R1, byte G0, byte 
 
 internal static class BcpackTables
 {
-    // [width - 1][q] -> per-band rANS frequencies (width in 1..10, q in 0..15); total weight is 65536.
+
     internal static readonly int[][][] ProbTables =
     [
-        // width 1
+
         [
             [32768, 32768],
             [38761, 26775],
@@ -43,7 +43,7 @@ internal static class BcpackTables
             [65535, 1],
             [65535, 1],
         ],
-        // width 2
+
         [
             [16384, 16384, 16384],
             [21168, 17592, 13388],
@@ -62,7 +62,7 @@ internal static class BcpackTables
             [65533, 1, 1],
             [65533, 1, 1],
         ],
-        // width 3
+
         [
             [8192, 8192, 8192, 8192],
             [11073, 10095, 8796, 6694],
@@ -81,7 +81,7 @@ internal static class BcpackTables
             [65529, 1, 1, 1],
             [65529, 1, 1, 1],
         ],
-        // width 4
+
         [
             [4096, 4096, 4096, 4096, 4096],
             [5665, 5407, 5048, 4398, 3347],
@@ -100,7 +100,7 @@ internal static class BcpackTables
             [65521, 1, 1, 1, 1],
             [65521, 1, 1, 1, 1],
         ],
-        // width 5
+
         [
             [2048, 2048, 2048, 2048, 2048, 2048],
             [2865, 2799, 2704, 2524, 2200, 1673],
@@ -119,7 +119,7 @@ internal static class BcpackTables
             [65505, 1, 1, 1, 1, 1],
             [65505, 1, 1, 1, 1, 1],
         ],
-        // width 6
+
         [
             [1024, 1024, 1024, 1024, 1024, 1024, 1024],
             [1441, 1423, 1400, 1352, 1262, 1099, 837],
@@ -138,7 +138,7 @@ internal static class BcpackTables
             [65147, 327, 1, 1, 1, 1, 1],
             [65473, 1, 1, 1, 1, 1, 1],
         ],
-        // width 7
+
         [
             [512, 512, 512, 512, 512, 512, 512, 512],
             [722, 718, 712, 700, 676, 632, 550, 418],
@@ -157,7 +157,7 @@ internal static class BcpackTables
             [60485, 4663, 132, 1, 1, 1, 1, 1],
             [65409, 1, 1, 1, 1, 1, 1, 1],
         ],
-        // width 8
+
         [
             [256, 256, 256, 256, 256, 256, 256, 256, 256],
             [362, 360, 359, 356, 350, 338, 316, 275, 209],
@@ -176,7 +176,7 @@ internal static class BcpackTables
             [47343, 13141, 2332, 35, 1, 1, 1, 1, 1],
             [65281, 1, 1, 1, 1, 1, 1, 1, 1],
         ],
-        // width 9
+
         [
             [128, 128, 128, 128, 128, 128, 128, 128, 128, 128],
             [181, 181, 179, 180, 178, 175, 169, 157, 137, 105],
@@ -195,7 +195,7 @@ internal static class BcpackTables
             [31009, 16335, 6572, 1136, 1, 1, 1, 1, 1, 1],
             [65025, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ],
-        // width 10
+
         [
             [64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64],
             [91, 89, 90, 90, 90, 90, 88, 85, 79, 69, 52],
@@ -216,7 +216,7 @@ internal static class BcpackTables
         ],
     ];
 
-    // BC1 index lanes: symbol -> 2x2 quadrant byte (TL, TR, BL, BR in bits 0-1, 2-3, 4-5, 6-7).
+
     internal static readonly byte[] Bc1Quadrant =
     [
         0xAA, 0xFF, 0x00, 0x55, 0xFA, 0xAF, 0xFB, 0xBF, 0xFE, 0xEF, 0xBB, 0xEE, 0xDF, 0xBA, 0x5A, 0xAE,
@@ -237,7 +237,7 @@ internal static class BcpackTables
         0x81, 0x18, 0x30, 0x24, 0xC3, 0x3C, 0xC2, 0x41, 0x14, 0x83, 0x2C, 0x38, 0x43, 0x34, 0x1C, 0xC1,
     ];
 
-    // BC3 3-bit alpha index pair rank table (64 entries, packed as p0 | (p1 << 3)).
+
     internal static readonly byte[] Bc3AlphaPair =
     [
         0x00, 0x09, 0x36, 0x24, 0x1B, 0x2D, 0x3F, 0x31, 0x0E, 0x08, 0x01, 0x0F, 0x39, 0x18, 0x03, 0x10,
@@ -246,7 +246,7 @@ internal static class BcpackTables
         0x0B, 0x15, 0x19, 0x2A, 0x27, 0x3C, 0x1F, 0x3B, 0x32, 0x16, 0x0A, 0x11, 0x38, 0x07, 0x3A, 0x17,
     ];
 
-    // BC3 colour quadrant rank table (256 entries).
+
     internal static readonly byte[] Bc3ColourQuadrant =
     [
         0x55, 0xAA, 0xFF, 0x00, 0x50, 0x05, 0xAF, 0xFA, 0xAE, 0xEA, 0xAB, 0xBA, 0xEE, 0xBB, 0xFE, 0xBF,
@@ -267,7 +267,7 @@ internal static class BcpackTables
         0x18, 0x81, 0xB4, 0x4B, 0x16, 0x61, 0xC1, 0x24, 0x1C, 0x49, 0x14, 0x42, 0x94, 0x41, 0x34, 0x43,
     ];
 
-    // BC4 3-bit index pair rank table (64 entries, packed as p0 | (p1 << 3)).
+
     internal static readonly byte[] Bc4Pair =
     [
         0x09, 0x00, 0x1B, 0x36, 0x24, 0x2D, 0x03, 0x18, 0x0E, 0x31, 0x3F, 0x12, 0x1E, 0x33, 0x01, 0x08,
@@ -276,7 +276,7 @@ internal static class BcpackTables
         0x27, 0x3C, 0x2C, 0x25, 0x13, 0x1A, 0x10, 0x02, 0x39, 0x0F, 0x2E, 0x35, 0x3E, 0x37, 0x3A, 0x17,
     ];
 
-    // BC5 3-bit index pair rank table (64 entries, packed as p0 | (p1 << 3)).
+
     internal static readonly byte[] Bc5Pair =
     [
         0x00, 0x09, 0x24, 0x1B, 0x36, 0x3F, 0x04, 0x20, 0x08, 0x12, 0x01, 0x03, 0x18, 0x2D, 0x02, 0x10,
@@ -293,7 +293,7 @@ internal static class BcpackTables
     private static Bc1HistoryEntry[] BuildBc1History()
     {
         var table = new Bc1HistoryEntry[256];
-        // Confirmed built-in history entries
+
         table[1] = new(7, 29, 6, 8, 30, 7, BcpackHistoryStatus.Confirmed);
         table[2] = new(15, 29, 15, 16, 36, 17, BcpackHistoryStatus.Confirmed);
         table[3] = new(20, 38, 14, 3, 5, 2, BcpackHistoryStatus.Confirmed);
@@ -542,7 +542,7 @@ internal static class BcpackTables
         table[253] = new(4, 9, 4, 2, 4, 2, BcpackHistoryStatus.Confirmed);
         table[254] = new(17, 27, 31, 15, 34, 31, BcpackHistoryStatus.Confirmed);
         table[255] = new(0, 0, 1, 0, 0, 0, BcpackHistoryStatus.Confirmed);
-        // Provisional built-in history entries (refused in strict mode)
+
         table[6] = new(12, 24, 11, 7, 14, 6, BcpackHistoryStatus.Provisional);
         table[9] = new(14, 23, 8, 1, 2, 1, BcpackHistoryStatus.Provisional);
         table[67] = new(5, 9, 3, 12, 24, 10, BcpackHistoryStatus.Provisional);
@@ -556,7 +556,7 @@ internal static class BcpackTables
     private static Bc3HistoryEntry[] BuildBc3History()
     {
         var table = new Bc3HistoryEntry[256];
-        // Provisional built-in history entries (refused in strict mode)
+
         table[2] = new(177, 134, 27, 55, 24, 14, 54, 24, BcpackHistoryStatus.Provisional);
         table[26] = new(255, 255, 21, 34, 8, 15, 22, 3, BcpackHistoryStatus.Provisional);
         table[29] = new(220, 109, 17, 35, 17, 15, 30, 15, BcpackHistoryStatus.Provisional);
@@ -598,7 +598,7 @@ internal static class BcpackTables
     private static Bc4HistoryEntry[] BuildBc4History()
     {
         var table = new Bc4HistoryEntry[256];
-        // Provisional built-in history entries (refused in strict mode)
+
         table[25] = new(81, 50, BcpackHistoryStatus.Provisional);
         table[33] = new(58, 31, BcpackHistoryStatus.Provisional);
         table[77] = new(164, 124, BcpackHistoryStatus.Provisional);
@@ -660,11 +660,11 @@ internal static class BcpackTables
     private static Bc5HistoryEntry[] BuildBc5History()
     {
         var table = new Bc5HistoryEntry[256];
-        // Confirmed built-in history entries
+
         table[182] = new(133, 126, 124, 55, BcpackHistoryStatus.Confirmed);
         table[183] = new(128, 126, 116, 112, BcpackHistoryStatus.Confirmed);
         table[222] = new(131, 128, 123, 37, BcpackHistoryStatus.Confirmed);
-        // Provisional built-in history entries (refused in strict mode)
+
         table[3] = new(130, 218, 45, 192, BcpackHistoryStatus.Provisional);
         table[4] = new(172, 109, 158, 94, BcpackHistoryStatus.Provisional);
         table[5] = new(183, 136, 113, 69, BcpackHistoryStatus.Provisional);

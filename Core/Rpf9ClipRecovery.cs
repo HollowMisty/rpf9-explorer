@@ -6,9 +6,9 @@ namespace RpfPreview.Core;
 
 public sealed record RageClipDictionary(string Name, IReadOnlyList<string> Clips, int Animations);
 
-/// <summary>Recovers clip dictionaries (animation containers) from RPF9 payloads. A dictionary is a system-only
-/// resource: zlib blocks at page + 16, continued at the next 16-byte boundary while a block is a multiple of 64 KiB.
-/// Only the dictionary name, clip names and animation count are read; animation tracks are not decoded.</summary>
+
+
+
 public static class Rpf9ClipRecovery
 {
     private const int MaxBytes = 64 * 1024 * 1024, HeaderBytes = 0xB0, ScanBlock = 4 * 1024 * 1024, MaxClips = 65536;
@@ -18,9 +18,9 @@ public static class Rpf9ClipRecovery
         Pointer(system, 8) >= 0 && Pointer(system, 0x48) >= 0 && Pointer(system, 0x80) >= 0 &&
         ((system[0x47] & 0x80) != 0 || Pointer(system, 0x38) >= 0 && U16(system, 0x40) > 0 && U16(system, 0x42) == U16(system, 0x40) + 1);
 
-    /// <summary>Header: name string at +0x38; clip hash map at +0x48 with bucket count at +0x50 and entry count at
-    /// +0x58; animation count at +0x90. A map entry is key (8 bytes), clip pointer, next pointer; a clip holds its
-    /// name string at +0x28.</summary>
+
+
+
     public static RageClipDictionary? Decode(ReadOnlySpan<byte> system)
     {
         if (!LooksLikeClipDictionary(system)) return null;
@@ -104,8 +104,8 @@ public static class Rpf9ClipRecovery
         return entries;
     }
 
-    /// <summary>A 16-byte string field: pointer and length, or, when the top bit of the last byte is set, up to 14
-    /// characters stored in the field itself with the length in that byte.</summary>
+
+
     private static string? Text(ReadOnlySpan<byte> system, int at)
     {
         bool inline = (system[at + 15] & 0x80) != 0;
@@ -115,7 +115,7 @@ public static class Rpf9ClipRecovery
         return bytes.IndexOfAnyExceptInRange((byte)0x20, (byte)0x7E) < 0 ? Encoding.ASCII.GetString(bytes) : null;
     }
 
-    /// <summary>Offset of a system pointer (0x50000000 base), or -1 when the value is not one within <paramref name="limit"/>.</summary>
+
     private static long Pointer(ulong value, long limit = MaxBytes) => value >= 0x50000000 && value - 0x50000000 <= (ulong)limit ? (long)(value - 0x50000000) : -1;
     private static long Pointer(ReadOnlySpan<byte> system, int at) => Pointer(U64(system, at));
     private static ulong U64(ReadOnlySpan<byte> bytes, int at) => BinaryPrimitives.ReadUInt64LittleEndian(bytes[at..]);

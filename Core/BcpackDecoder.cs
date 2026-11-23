@@ -12,12 +12,12 @@ public sealed class BcpackProvisionalException : NotSupportedException
 
 public sealed record BcpackDecodeResult(byte[] Data, IReadOnlySet<string> ProvisionalEntries);
 
-/// <summary>
-/// Clean-room Xbox Series DirectStorage BCPack bitstream decoder.
-/// Implements the 12/16-lane 16-bit interleaved rANS entropy layer (8-byte/cycle prefetch
-/// scheduling, banded exponential probability models, legal end-state validation) and
-/// block rebuilders for DSTORAGE_BCPACK_MODE codecs 1 (BC1), 3 (BC3), 4 (BC4), and 5 (BC5).
-/// </summary>
+
+
+
+
+
+
 public static class BcpackDecoder
 {
     public const uint RansL = 1u << 24;
@@ -71,10 +71,10 @@ public static class BcpackDecoder
         return specs;
     }
 
-    /// <summary>
-    /// Decodes one BCPack chunk into <paramref name="outputSize"/> bytes of standard BCn blocks.
-    /// Runs in strict confirmed-history mode by default (<paramref name="allowProvisional"/> = false).
-    /// </summary>
+
+
+
+
     public static byte[] Decode(
         ReadOnlySpan<byte> packed,
         int codec,
@@ -83,10 +83,10 @@ public static class BcpackDecoder
         CancellationToken cancellationToken = default)
         => DecodeWithInfo(packed, codec, outputSize, allowProvisional, null, cancellationToken).Data;
 
-    /// <summary>
-    /// Decodes one BCPack chunk using external initial-history tables (<see cref="BcpackHistory.Load"/>) in place
-    /// of, or laid over, the built-in BC1/BC3/BC4/BC5 tables. A null <paramref name="history"/> uses the built-in tables.
-    /// </summary>
+
+
+
+
     public static byte[] Decode(
         ReadOnlySpan<byte> packed,
         int codec,
@@ -96,10 +96,10 @@ public static class BcpackDecoder
         CancellationToken cancellationToken = default)
         => DecodeWithInfo(packed, codec, outputSize, allowProvisional, history, cancellationToken).Data;
 
-    /// <summary>
-    /// Decodes one BCPack chunk and returns both the BCn block payload and any provisional
-    /// built-in history labels used (always empty when <paramref name="allowProvisional"/> is false).
-    /// </summary>
+
+
+
+
     public static BcpackDecodeResult DecodeWithInfo(
         ReadOnlySpan<byte> packed,
         int codec,
@@ -108,10 +108,10 @@ public static class BcpackDecoder
         CancellationToken cancellationToken = default)
         => DecodeWithInfo(packed, codec, outputSize, allowProvisional, null, cancellationToken);
 
-    /// <summary>
-    /// <see cref="DecodeWithInfo(ReadOnlySpan{byte}, int, int, bool, CancellationToken)"/> with external
-    /// initial-history tables; a null <paramref name="history"/> uses the built-in tables.
-    /// </summary>
+
+
+
+
     public static BcpackDecodeResult DecodeWithInfo(
         ReadOnlySpan<byte> packed,
         int codec,
@@ -140,10 +140,10 @@ public static class BcpackDecoder
         return new BcpackDecodeResult(data, provisional is not null ? provisional : EmptyProvisional);
     }
 
-    /// <summary>
-    /// Entropy layer: decodes <paramref name="packed"/> into per-lane symbol arrays and bytes consumed.
-    /// Supports all six active modes (1=BC1, 3=BC3, 4=BC4, 5=BC5, 6=BC6H, 7=BC7).
-    /// </summary>
+
+
+
+
     internal static (ushort[][] Lanes, int BytesUsed) DecodeLanes(
         ReadOnlySpan<byte> packed,
         int codec,
@@ -188,6 +188,7 @@ public static class BcpackDecoder
         int symbolsPerLane,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         const byte HeaderByte0 = 0;
         const byte HeaderByte1 = 1;
         const byte HeaderByte2 = 2;
@@ -248,8 +249,8 @@ public static class BcpackDecoder
             if (allDone)
                 return (output, inputPos);
 
-            // Phase 1: state update, prefetch arbitration (at most 8 bytes/cycle),
-            // and symbol release for non-stalled lanes.
+
+
             int prefetchRemaining = PrefetchBudget;
             for (int i = 0; i < laneCount; i++)
             {
@@ -284,7 +285,7 @@ public static class BcpackDecoder
                 }
             }
 
-            // Phase 2: header parsing, byte merge, virtual zero fill on flush, and symbol lookup.
+
             for (int i = 0; i < laneCount; i++)
             {
                 if (laneDone[i] || laneStalled[i])
@@ -422,7 +423,7 @@ public static class BcpackDecoder
                 }
             }
 
-            // Phase 3: emit one synchronized element when every active lane has filled its slot.
+
             bool ready = true;
             bool anyFull = false;
             for (int i = 0; i < laneCount; i++)

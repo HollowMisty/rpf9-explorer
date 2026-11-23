@@ -1,27 +1,27 @@
-// Optional external BCPack initial-history tables for BC1/BC3/BC4/BC5, read at run time from a locally generated
-// JSON file or directory (Leonida's tools/bcpack_history_calib.py writes bc1.json..bc7.json). The schema, lookup and
-// merge rules follow Leonida's pure-Python decoder (tools/bcpack_tables_bptc.py load_bc_history and tools/bcpack.py
-// _resolve_bc_history), so both decoders give the same output for the same tables.
-// Nothing here is game data: the tables are supplied by the user from their own files and never embedded.
+
+
+
+
+
 
 using System.Globalization;
 using System.Text.Json;
 
 namespace RpfPreview.Core;
 
-/// <summary>
-/// External BCPack initial-history tables for codecs 1 (BC1), 3 (BC3), 4 (BC4) and 5 (BC5).
-/// <para>
-/// <see cref="Load"/> takes a directory holding <c>bc1.json</c>..<c>bc5.json</c> (each optional) or one JSON file
-/// with <c>"bc1"</c>..<c>"bc5"</c> sections (or a single section marked with <c>"codec": "bcN"</c>). A section has
-/// <c>confirmed</c> and <c>provisional</c> tables (a 256-element list or an index-keyed object of endpoint tuples: 6
-/// integers for BC1, 8 for BC3, 2 for BC4, 4 for BC5) and an optional <c>replace</c> flag. Without <c>replace</c> the
-/// entries are laid over the built-in tables (an external confirmed entry wins over everything, an external
-/// provisional entry wins over a built-in provisional one but never over a confirmed one); with <c>replace</c> they
-/// stand alone. A codec without a section keeps the built-in table. BC6H/BC7 sections (<c>bc6h.json</c>,
-/// <c>bc7.json</c>) are ignored here because this decoder does not rebuild those codecs yet.
-/// </para>
-/// </summary>
+
+
+
+
+
+
+
+
+
+
+
+
+
 public sealed class BcpackHistory
 {
     private static readonly (int Codec, string Key, int[] Mods)[] Specs =
@@ -37,10 +37,10 @@ public sealed class BcpackHistory
     internal Bc4HistoryEntry[] Bc4 { get; }
     internal Bc5HistoryEntry[] Bc5 { get; }
 
-    /// <summary>The file or directory the tables came from.</summary>
+
     public string Source { get; }
 
-    /// <summary>The codec keys (<c>bc1</c>, <c>bc3</c>, <c>bc4</c>, <c>bc5</c>) that had a section.</summary>
+
     public IReadOnlyList<string> Codecs { get; }
 
     private BcpackHistory(string source, Bc1HistoryEntry[] bc1, Bc3HistoryEntry[] bc3, Bc4HistoryEntry[] bc4, Bc5HistoryEntry[] bc5, IReadOnlyList<string> codecs)
@@ -48,11 +48,11 @@ public sealed class BcpackHistory
         Source = source; Bc1 = bc1; Bc3 = bc3; Bc4 = bc4; Bc5 = bc5; Codecs = codecs;
     }
 
-    /// <summary>
-    /// Reads every BC1/BC3/BC4/BC5 section from <paramref name="path"/> (a JSON file or a directory of
-    /// <c>bcN.json</c> files). A malformed table throws <see cref="InvalidDataException"/>; a missing path throws
-    /// <see cref="FileNotFoundException"/>.
-    /// </summary>
+
+
+
+
+
     public static BcpackHistory Load(string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
@@ -102,7 +102,7 @@ public sealed class BcpackHistory
         return root;
     }
 
-    // A document holds the codec's section under its key, or is that section itself when it says "codec": "<key>".
+
     private static JsonElement? FindSection(JsonElement data, string key)
     {
         if (data.TryGetProperty(key, out var section)) return section;
@@ -136,7 +136,7 @@ public sealed class BcpackHistory
                 if (iv < 0 || iv >= mods[c]) throw new InvalidDataException($"{key} {label}[{index}] value {iv} outside 0..{mods[c] - 1}");
                 row[c++] = (int)iv;
             }
-            map[index] = row;   // a repeated index keeps the last value, as a Python dict does
+            map[index] = row;
         }
         return map;
     }
@@ -162,7 +162,7 @@ public sealed class BcpackHistory
         else throw new InvalidDataException("history table must be a 256-element list or index-keyed dict");
     }
 
-    // Python's int(): integers, floats truncated toward zero, booleans, and integer strings.
+
     private static long ToInteger(JsonElement v, string where)
     {
         switch (v.ValueKind)
@@ -171,7 +171,7 @@ public sealed class BcpackHistory
                 if (v.TryGetInt64(out long l)) return l;
                 double d = v.GetDouble();
                 if (double.IsFinite(d) && Math.Abs(d) < 9.2e18) return (long)Math.Truncate(d);
-                return d < 0 ? long.MinValue : long.MaxValue;   // out of every range below
+                return d < 0 ? long.MinValue : long.MaxValue;
             case JsonValueKind.True: return 1;
             case JsonValueKind.False: return 0;
             case JsonValueKind.String:
@@ -181,7 +181,7 @@ public sealed class BcpackHistory
         }
     }
 
-    // An optionally signed run of ASCII digits; a value too large for a long saturates, which every range rejects.
+
     private static long? ParseInteger(string text)
     {
         string s = text.Trim();
@@ -191,7 +191,7 @@ public sealed class BcpackHistory
         return s[0] == '-' ? long.MinValue : long.MaxValue;
     }
 
-    // Python's bool(): null, false, 0, "", [] and {} are false.
+
     private static bool IsTruthy(JsonElement v) => v.ValueKind switch
     {
         JsonValueKind.Null or JsonValueKind.False or JsonValueKind.Undefined => false,
@@ -209,7 +209,7 @@ public sealed class BcpackHistory
         T[] table = s.Replace ? new T[256] : (T[])builtin.Clone();
         foreach (var (i, v) in s.Confirmed) table[i] = make(v, BcpackHistoryStatus.Confirmed);
         foreach (var (i, v) in s.Provisional)
-            if (status(table[i]) != BcpackHistoryStatus.Confirmed)   // replaced tables start all Unknown
+            if (status(table[i]) != BcpackHistoryStatus.Confirmed)
                 table[i] = make(v, BcpackHistoryStatus.Provisional);
         return table;
     }

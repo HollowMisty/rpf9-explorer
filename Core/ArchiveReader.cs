@@ -64,7 +64,7 @@ public static class ArchiveReader
         var media = Rpf9MediaRecovery.Recover(path, length, header);
         var structured = Rpf9StructuredRecovery.Recover(path, length, header, media.Count);
         int nextIndex = media.Count + structured.Count;
-        // A container found in the first 16 MiB and also in the full PSIN index is listed once, from the index.
+
         var cachedPsin = RecoveryIndexCache.Load("psin", path, length, header, nextIndex);
         if (cachedPsin != null)
         {

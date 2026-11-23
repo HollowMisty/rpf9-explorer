@@ -89,7 +89,7 @@ else if (args[0] is "models" or "proof-models" or "retry-models" or "fragments")
 }
 else if (args[0] == "clips")
 {
-    // Writes one line per clip dictionary: offset, name, animation count, then the clip names, tab-separated.
+
     var entries = Rpf9ClipRecovery.RecoverAtOffsets(source, length, Rpf9ClipRecovery.FindCandidateOffsets(source, length));
     RecoveryIndexCache.Save("clips", source, entries, $"Full {length:N0}-byte page+16 scan; {entries.Count:N0} clip dictionaries; names only, animation tracks are not decoded.");
     using var file = File.OpenRead(source); using var writer = new StreamWriter(Path.GetFullPath(args[2]));

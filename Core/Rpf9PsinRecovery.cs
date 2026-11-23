@@ -2,10 +2,10 @@ using System.IO.Compression;
 
 namespace RpfPreview.Core;
 
-/// <summary>Recovers PSIN metadata containers anywhere in an RPF9 file. A container starts at a 4 KiB page with a
-/// zlib block and continues at the next 16-byte boundary while a block is exactly 64 KiB. A continuation block is
-/// either zlib or stored as it is (64 KiB, or the remainder when it is the last block). A container is accepted
-/// only when its seven sections, its CHKS length and its CHKS checksum all match.</summary>
+
+
+
+
 public static class Rpf9PsinRecovery
 {
     private const int BlockBytes = 65536, MaxBytes = 16 * 1024 * 1024, ScanBlock = 4 * 1024 * 1024;
@@ -52,7 +52,7 @@ public static class Rpf9PsinRecovery
             {
                 data.Write(block.Data);
                 int required = PsinMetadata.RequiredLength(data.GetBuffer().AsSpan(0, (int)data.Length)), size = block.Data.Length;
-                // A stored last block is read as a full 64 KiB: only the bytes the container still needs belong to it.
+
                 if (block.IsRaw && required > 0 && required < data.Length) { size -= (int)data.Length - required; data.SetLength(required); }
                 segments.Add(new(block.Offset, block.IsRaw ? size : block.Packed, size) { IsRaw = block.IsRaw });
                 if (required == 0 || required > 0 && data.Length >= required || block.Data.Length != BlockBytes) break;
@@ -63,7 +63,7 @@ public static class Rpf9PsinRecovery
                 byte[] stored = new byte[Math.Min(BlockBytes, file.Length - next)]; file.Position = next; file.ReadExactly(stored);
                 block = new(next, stored.Length, stored, true);
             }
-            // A segment under 6 bytes cannot be read back (ZlibSegmentsStream and the index cache reject it).
+
             if (segments.Any(s => s.StoredSize < 6) ||
                 PsinMetadata.Inspect(data.GetBuffer().AsSpan(0, (int)data.Length)) is not { InternalChecksumVerified: true }) continue;
             entries.Add(new($"recovered/metadata_PSIN_at_{candidate:X16}.psin", segments.Sum(s => s.StoredSize), data.Length,

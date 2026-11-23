@@ -9,8 +9,8 @@ public sealed record PsinInspection(int Length, IReadOnlyList<PsinSection> Secti
     public uint StoredChecksum { get; init; }
     public uint PlatformTag { get; init; }
 
-    /// <summary>The CHKS checksum is Jenkins one-at-a-time over the whole container, seeded with 0x3FAC7125, taking
-    /// bytes as signed and reading the CHKS length and checksum fields as zero.</summary>
+
+
     public bool InternalChecksumVerified { get; init; }
 }
 
@@ -20,15 +20,15 @@ public static class PsinMetadata
     private static readonly string[] Tags = { "PSIN", "LSCH", "LENM", "LSNS", "LGID", "LRSC", "CHKS" };
     private static readonly string[] MapTags = { "PSIN", "PMAP", "PSCH", "PSIG", "STDN", "STNS", "CHKS" };
 
-    /// <summary>The section list a container uses, chosen by its second tag: both lists have seven sections.</summary>
+
     private static string[] TagsOf(ReadOnlySpan<byte> data)
     {
         int second = data.Length >= 8 ? (int)Math.Min(BinaryPrimitives.ReadUInt32BigEndian(data[4..]), int.MaxValue) : 0;
         return second >= 8 && second <= data.Length - 4 && data.Slice(second, 4).SequenceEqual("PMAP"u8) ? MapTags : Tags;
     }
 
-    /// <summary>Total container length once all seven section headers are within <paramref name="data"/>: -1 while
-    /// more bytes are needed to tell, 0 when the bytes are not a PSIN container.</summary>
+
+
     public static int RequiredLength(ReadOnlySpan<byte> data)
     {
         long position = 0;
