@@ -14,8 +14,9 @@ public static class RecoveryIndexCache
         public bool LiveSourceSnapshot { get; init; }
     }
     private const string Schema = "rpfpreview-payload-index/1";
-    private const string ModelSchema = "rpfpreview-payload-index/models/5";
-    private const string PreviousModelSchema = "rpfpreview-payload-index/models/4";
+    private const string ModelSchema = "rpfpreview-payload-index/models/6";
+    private const string PreviousModelSchema = "rpfpreview-payload-index/models/5";
+    private const string PageModelSchema = "rpfpreview-payload-index/models/4";
     private const string OlderModelSchema = "rpfpreview-payload-index/models/3";
     private const string LegacyModelSchema = "rpfpreview-payload-index/models/2";
     private const string MixedBlocksSchema = "rpfpreview-payload-index/2";
@@ -77,7 +78,8 @@ public static class RecoveryIndexCache
             var index = JsonSerializer.Deserialize<CachedIndex>(input);
             if (index is null) return null;
             bool live = index.LiveSourceSnapshot && HasActiveWriter(source);
-            bool supported = legacyModels ? index.Schema is Schema or MixedBlocksSchema or LegacyModelSchema or OlderModelSchema or PreviousModelSchema
+            bool supported = legacyModels ? index.Schema is Schema or MixedBlocksSchema or LegacyModelSchema
+                    or OlderModelSchema or PageModelSchema or PreviousModelSchema
                 : index.Schema == CurrentSchema(kind);
             if (!supported || index.Kind != kind
                 || !string.Equals(index.Source, source, StringComparison.OrdinalIgnoreCase)
@@ -111,8 +113,9 @@ public static class RecoveryIndexCache
         string compression = kind switch { "models" => "Recovered model", "textures" => "Recovered texture dictionary", "audio" => "Recovered AWC", "shaders" => "Recovered raw deflate shader", "psin" => "Recovered zlib", "clips" => "Recovered clip dictionary", _ => throw new InvalidDataException("Unknown cache kind.") };
         int maximum = kind == "models" ? Rpf9ModelRecovery.MaxRecoveredModels : 250_000;
         if (entries == null || entries.Count > maximum) throw new InvalidDataException("Invalid payload cache count.");
-        bool rawAllowed = kind == "psin" || kind == "models" && schema is MixedBlocksSchema or OlderModelSchema or PreviousModelSchema or ModelSchema;
-        bool selectionAllowed = kind == "models" && schema is LegacyModelSchema or OlderModelSchema or PreviousModelSchema or ModelSchema;
+        bool modernModel = schema is OlderModelSchema or PageModelSchema or PreviousModelSchema or ModelSchema;
+        bool rawAllowed = kind == "psin" || kind == "models" && (schema == MixedBlocksSchema || modernModel);
+        bool selectionAllowed = kind == "models" && (schema == LegacyModelSchema || modernModel);
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in entries)
         {
