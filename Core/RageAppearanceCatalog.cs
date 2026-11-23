@@ -8,6 +8,9 @@ public sealed record RageAppearanceAsset(ulong Key, ulong Guid, uint SlodRgba,
     public int ParameterCount => ScalarParameterCount + TextureParameterCount;
     public bool CanPreviewSlodColor => Key != 0 && Guid == Key && ParameterCount == 0 &&
         TagCount == 0 && Flag == 0 && (SlodRgba >> 24) == 255;
+    public uint? TintPaletteReference { get; init; }
+    public bool CanPreviewPaletteSlodColor => Key != 0 && Guid == Key && ParameterCount == 0 &&
+        TagCount == 1 && Flag == 1 && TintPaletteReference == 0xCF407755;
 }
 
 public sealed class RageAppearanceCatalog
@@ -177,7 +180,18 @@ public sealed class RageAppearanceCatalog
                     Require(result.Count < count); int keyAt = start + 16 + slot * SlotBytes; ulong key = U64(keyAt); Require(key != 0 && keys.Add(key));
                     int value = keyAt + 8; int tags = ReadParameterMap(value, 0x4A, true), scalars = ReadParameterMap(value + 32, 0x14, true), textures = ReadParameterMap(value + 56, 0x4F, false);
                     byte flag = _data[value + 84]; Require(flag <= 1 && _data.Slice(value + 85, 3).IndexOfAnyExcept((byte)0) < 0);
-                    result.Add(new(key, U64(value + 24), U32(value + 80), scalars, textures, tags, flag));
+                    uint? paletteReference = null;
+                    if (tags == 1)
+                    {
+                        var property = InternalPointer(U64(value + 8), 24);
+                        if (U32(property.At) == 0xE0C90277 && U32(property.At + 8) == 1)
+                        {
+                            var item = InternalPointer(U64(property.At + 16), 4, 0x4A);
+                            paletteReference = U32(item.At);
+                        }
+                    }
+                    result.Add(new(key, U64(value + 24), U32(value + 80), scalars, textures, tags, flag)
+                    { TintPaletteReference = paletteReference });
                 }
             }
             Require(result.Count == count); return result;

@@ -3,10 +3,22 @@ using System.Buffers.Binary;
 namespace RpfPreview.Core;
 
 public sealed record RageWardrobeState(uint Id, ulong DrawableKey, ulong AlbedoKey, ulong NormalKey, ulong ExtraKey);
-public sealed record RageWardrobePreset(uint Id, uint ParentId, uint CategoryHash, IReadOnlyList<RageWardrobeState> States);
+public sealed record RageWardrobePreset(uint Id, uint ParentId, uint CategoryHash, IReadOnlyList<RageWardrobeState> States)
+{
+    public uint PaletteHash { get; init; }
+    public byte Tint0 { get; init; }
+    public byte Tint1 { get; init; }
+    public byte Tint2 { get; init; }
+}
 public sealed record RageWardrobeMember(uint ChildId, uint StateId);
 public sealed record RageWardrobeKit(uint Id, IReadOnlyList<RageWardrobeMember> Members);
-public sealed record RageWardrobeSelection(uint PresetId, uint StateId, uint CategoryHash, ulong DrawableKey, ulong AlbedoKey, ulong NormalKey, ulong ExtraKey);
+public sealed record RageWardrobeSelection(uint PresetId, uint StateId, uint CategoryHash, ulong DrawableKey, ulong AlbedoKey, ulong NormalKey, ulong ExtraKey)
+{
+    public uint PaletteHash { get; init; }
+    public byte Tint0 { get; init; }
+    public byte Tint1 { get; init; }
+    public byte Tint2 { get; init; }
+}
 public sealed record RageWardrobeResolution(IReadOnlyList<RageWardrobeSelection> Selections, IReadOnlyList<string> Warnings);
 
 public sealed class RageWardrobeCatalog
@@ -84,7 +96,8 @@ public sealed class RageWardrobeCatalog
                 current = parent;
             }
             if (!foundState) Warn($"State {member.StateId:X8} is missing from preset {preset!.Id:X8} and its parents.");
-            selections.Add(new(preset!.Id, member.StateId, preset.CategoryHash, drawable, albedo, normal, extra));
+            selections.Add(new(preset!.Id, member.StateId, preset.CategoryHash, drawable, albedo, normal, extra)
+            { PaletteHash = preset.PaletteHash, Tint0 = preset.Tint0, Tint1 = preset.Tint1, Tint2 = preset.Tint2 });
         }
         return new(selections.AsReadOnly(), warnings.AsReadOnly());
     }
@@ -181,7 +194,8 @@ public sealed class RageWardrobeCatalog
                         int p = values.At + j * 184; uint stateId = U32(p); Require(stateIds.Add(stateId));
                         states.Add(new(stateId, U64(p + 8), U64(p + 16), U64(p + 24), U64(p + 32)));
                     }
-                    presets.Add(new(id, U32(at + 4), U32(at + 24), states.AsReadOnly()));
+                    presets.Add(new(id, U32(at + 4), U32(at + 24), states.AsReadOnly())
+                    { PaletteHash = U32(at + 28), Tint0 = _data[at + 32], Tint1 = _data[at + 33], Tint2 = _data[at + 34] });
                 }
             }
             foreach (int bucket in new[] { 96, 144 })

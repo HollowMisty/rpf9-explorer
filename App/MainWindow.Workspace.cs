@@ -295,6 +295,8 @@ public partial class MainWindow
         _workspaceDirectory = null; _thumbnailCache.Clear(); _loadedTextureLocations.Clear(); _loadedResidentTextures.Clear(); _loadedResidentNames.Clear(); _defaultResidentNames.Clear(); _defaultResidentSources.Clear(); _defaultResidentRoot = null;
         _modelImageCache.Clear(); _modelImageCacheBytes = 0; _streamingCatalog = null; _streamingPoolDirectory = null;
         _appearanceAssets.Clear(); _appearanceSourceStamp = null; _modelNativeSlodColors.Clear();
+        _appearanceTintCatalogs = []; _wardrobeTints.Clear();
+        _characterPortraitCache.Clear(); _characterPortraitPools = null; _characterPortraitPoolRoot = null;
         ArchiveWorkspace.Visibility = Visibility.Collapsed; DropZone.Visibility = Visibility.Visible; NoticeBorder.Visibility = Visibility.Collapsed;
         ArchiveNameText.Text = "No sources loaded"; ArchivePathText.Text = "Open archives or an entire folder"; ArchiveStatsText.Text = ""; FormatBadge.Visibility = Visibility.Collapsed;
         ResetPreview(); SetBusy(false); StatusText.Text = "Workspace cleared · saved projects retained";

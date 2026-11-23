@@ -63,7 +63,7 @@ public sealed class RageCharacterCatalog
             var components = resolved.Selections.Where(s => s.DrawableKey != 0).GroupBy(s => s.DrawableKey).ToArray();
             var warnings = resolved.Warnings.Take(128).ToList();
             foreach (var component in components)
-                if (component.Select(s => (s.AlbedoKey, s.NormalKey, s.ExtraKey)).Distinct().Skip(1).Any() && warnings.Count < 128)
+                if (component.Select(s => (s.AlbedoKey, s.NormalKey, s.ExtraKey, s.PaletteHash, s.Tint0, s.Tint1, s.Tint2)).Distinct().Skip(1).Any() && warnings.Count < 128)
                     warnings.Add($"Drawable {component.Key:X16} has conflicting selected appearance states.");
             int available = components.Count(g => NamesFor(g.Key).Length > 0);
             var componentNames = components.SelectMany(g => NamesFor(g.Key)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();

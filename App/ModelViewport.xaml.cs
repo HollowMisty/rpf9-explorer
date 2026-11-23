@@ -24,6 +24,7 @@ public partial class ModelViewport : UserControl
     private Point3D _center;
     private Point3D _initialCenter;
     private double _radius = 1, _distance = 3, _yaw = .7, _pitch = .35;
+    private double _homeYaw = .7, _homePitch = .35;
     private Point _last;
     private MouseButton? _drag;
     public int PresentedVertices { get; private set; }
@@ -111,6 +112,10 @@ public partial class ModelViewport : UserControl
     {
         UpdateLayout();
         ResetView();
+    }
+    internal void SetPortraitMode()
+    {
+        _homeYaw = 0; _homePitch = .08; ModelFooter.Visibility = Visibility.Collapsed; ResetView();
     }
 
     private static Material BuildPreviewMaterial(MeshPreviewPart part, Brush brush, bool hasImageTexture)
@@ -201,7 +206,7 @@ public partial class ModelViewport : UserControl
         double halfAngle = Math.Atan(Math.Tan(Camera.FieldOfView * Math.PI / 360) * ratio);
         return _radius / Math.Sin(Math.Max(.01, halfAngle)) * 1.12;
     }
-    private void ResetView() { _center = _initialCenter; _distance = FitDistance(new(Scene.ActualWidth, Scene.ActualHeight)); _yaw = .7; _pitch = .35; UpdateCamera(); }
+    private void ResetView() { _center = _initialCenter; _distance = FitDistance(new(Scene.ActualWidth, Scene.ActualHeight)); _yaw = _homeYaw; _pitch = _homePitch; UpdateCamera(); }
     private void Scene_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         if (Camera == null) return;

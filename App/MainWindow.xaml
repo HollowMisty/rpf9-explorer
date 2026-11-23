@@ -16,7 +16,7 @@
     <MenuItem Header="_Open archive…" InputGestureText="Ctrl+O" Command="{Binding OpenCommand}"/>
     <MenuItem Header="Open _folder…" Click="OpenFolder_Click"/>
     <MenuItem Header="Open _workspace…" Click="OpenWorkspace_Click"/>
-    <MenuItem Header="Assembled _wardrobe…" Click="OpenWardrobe_Click"/>
+    <MenuItem Header="_Characters…" Click="OpenWardrobe_Click"/>
     <MenuItem Header="_Save workspace and edits…" InputGestureText="Ctrl+S" Command="{Binding SaveCommand}"/>
     <MenuItem Header="Clear loaded sources" Click="ClearWorkspace_Click"/>
     <MenuItem Header="Save inspection _report…" Click="SaveReport_Click"/>
@@ -37,6 +37,7 @@
    <StackPanel Orientation="Horizontal">
     <Button x:Name="OpenButton" Content="Open…" Click="Open_Click" ToolTip="Open archive (Ctrl+O)" Margin="0,0,12,0"/>
     <Button x:Name="OpenFolderButton" Content="Open folder…" Click="OpenFolder_Click" Margin="0,0,6,0"/>
+    <Button x:Name="CharactersButton" Content="Characters…" Click="OpenWardrobe_Click" IsEnabled="False" Margin="0,0,12,0" ToolTip="Browse character faces and outfits in the loaded archives."/>
     <Button x:Name="SaveWorkspaceButton" Content="Save workspace…" Click="SaveWorkspace_Click" IsEnabled="False" Margin="0,0,14,0"/>
     <Button x:Name="ExtractSelectedButton" Content="Extract selected…" Click="ExtractSelected_Click" IsEnabled="False" ToolTipService.ShowOnDisabled="True" Margin="0,0,6,0"/>
     <Button x:Name="ExtractAllButton" Content="Extract all…" Click="ExtractAll_Click" IsEnabled="False"/>

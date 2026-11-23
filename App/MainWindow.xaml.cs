@@ -357,6 +357,7 @@ public partial class MainWindow : Window
         _busy = busy;
         OpenButton.IsEnabled = !busy;
         OpenFolderButton.IsEnabled = !busy;
+        CharactersButton.IsEnabled = !busy && _assetIndex?.Assets.Any(a => a.Kind == "model" && a.Available) == true;
         SaveWorkspaceButton.IsEnabled = !busy && _documents.Count > 0;
         ScanArchiveButton.IsEnabled = !busy && _document?.Format == "RPF9";
         FolderTree.IsEnabled = !busy;

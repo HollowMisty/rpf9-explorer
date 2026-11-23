@@ -69,12 +69,15 @@ public partial class MainWindow
         foreach (var material in (model.Materials ?? []).Where(m => used.Contains(m.ShaderIndex)))
         {
             token.ThrowIfCancellationRequested();
-            Color? authoredColor = WardrobeSlodColor(wardrobeAlbedo, material.ShaderIndex, wardrobeConstantMaterials);
+            Color? authoredColor = ResolvedWardrobeSlodColor(document, modelEntry, wardrobeAlbedo, material.ShaderIndex, wardrobeConstantMaterials);
             bool UseSlodColor()
             {
                 if (authoredColor is not Color color) return false;
                 _modelNativeSlodColors[material.ShaderIndex] = color;
-                notes.Add($"Material {material.ShaderIndex}: native albedo asset {wardrobeAlbedo:X16}, SLOD color #{color.R:X2}{color.G:X2}{color.B:X2}; uniform far-distance color approximation. Full surface texture and shader effects are not reproduced.");
+                string palette = _wardrobeTints.TryGetValue((document.SourcePath, modelEntry.Path, modelEntry.Offset, modelEntry.ResourceDrawableOffset), out var tint)
+                    && wardrobeAlbedo is ulong id && _appearanceAssets.TryGetValue(id, out var appearance) && appearance.CanPreviewPaletteSlodColor
+                    ? $", native palette {tint.Palette:X8}, tint {tint.Index}" : "";
+                notes.Add($"Material {material.ShaderIndex}: native albedo asset {wardrobeAlbedo:X16}{palette}, SLOD color #{color.R:X2}{color.G:X2}{color.B:X2}; uniform far-distance color approximation. Full surface texture and shader effects are not reproduced.");
                 return true;
             }
             if (!model.Meshes.Any(m => m.ShaderIndex == material.ShaderIndex && m.TexCoords != null))
