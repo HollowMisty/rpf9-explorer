@@ -176,14 +176,14 @@ public partial class MainWindow
 
         async Task<(RageModel Model, IReadOnlyDictionary<int, ImageSource> Textures)?> DecodeAssetAsync(WorkspaceAsset asset)
         {
-            var decoded = await Task.Run(() =>
+            var decoded = await Task.Run<(RageModel Model, ReadOnlyMemory<byte> System, ReadOnlyMemory<byte> Graphics)?>(() =>
             {
                 token.ThrowIfCancellationRequested();
                 byte[] bytes = ArchiveReader.ReadResourceData(asset.Document, asset.Entry, token);
                 int split = asset.Entry.ResourceSystemBytes ?? checked((int)asset.Entry.Segments![0].Size);
                 if (split <= 0 || split >= bytes.Length) return null;
                 var m = RageModelDecoder.Decode(bytes.AsSpan(0, split), bytes.AsSpan(split), asset.Entry.ResourceDrawableOffset);
-                return m == null ? null : (Model: m, System: bytes.AsMemory(0, split), Graphics: bytes.AsMemory(split));
+                return m == null ? null : (m, bytes.AsMemory(0, split), bytes.AsMemory(split));
             }, token);
             if (decoded == null) return null;
             var tex = await ResolveModelTexturesAsync(asset.Document, asset.Entry, decoded.Value.Model, decoded.Value.System, decoded.Value.Graphics, token);
