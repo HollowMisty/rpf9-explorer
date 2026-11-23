@@ -81,7 +81,20 @@ public static class BcpackDecoder
         int outputSize,
         bool allowProvisional = false,
         CancellationToken cancellationToken = default)
-        => DecodeWithInfo(packed, codec, outputSize, allowProvisional, cancellationToken).Data;
+        => DecodeWithInfo(packed, codec, outputSize, allowProvisional, null, cancellationToken).Data;
+
+    /// <summary>
+    /// Decodes one BCPack chunk using external initial-history tables (<see cref="BcpackHistory.Load"/>) in place
+    /// of, or laid over, the built-in BC1/BC3/BC4/BC5 tables. A null <paramref name="history"/> uses the built-in tables.
+    /// </summary>
+    public static byte[] Decode(
+        ReadOnlySpan<byte> packed,
+        int codec,
+        int outputSize,
+        bool allowProvisional,
+        BcpackHistory? history,
+        CancellationToken cancellationToken = default)
+        => DecodeWithInfo(packed, codec, outputSize, allowProvisional, history, cancellationToken).Data;
 
     /// <summary>
     /// Decodes one BCPack chunk and returns both the BCn block payload and any provisional
@@ -92,6 +105,19 @@ public static class BcpackDecoder
         int codec,
         int outputSize,
         bool allowProvisional = false,
+        CancellationToken cancellationToken = default)
+        => DecodeWithInfo(packed, codec, outputSize, allowProvisional, null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="DecodeWithInfo(ReadOnlySpan{byte}, int, int, bool, CancellationToken)"/> with external
+    /// initial-history tables; a null <paramref name="history"/> uses the built-in tables.
+    /// </summary>
+    public static BcpackDecodeResult DecodeWithInfo(
+        ReadOnlySpan<byte> packed,
+        int codec,
+        int outputSize,
+        bool allowProvisional,
+        BcpackHistory? history,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCodecSpec(codec, out var spec) || !spec.SupportsRebuild)
@@ -104,10 +130,10 @@ public static class BcpackDecoder
 
         byte[] data = spec.Id switch
         {
-            1 => RebuildBc1(lanes, blockCount, provisional, cancellationToken),
-            3 => RebuildBc3(lanes, blockCount, provisional, cancellationToken),
-            4 => RebuildBc4(lanes, blockCount, provisional, cancellationToken),
-            5 => RebuildBc5(lanes, blockCount, provisional, cancellationToken),
+            1 => RebuildBc1(lanes, blockCount, provisional, history?.Bc1 ?? BcpackTables.Bc1History, cancellationToken),
+            3 => RebuildBc3(lanes, blockCount, provisional, history?.Bc3 ?? BcpackTables.Bc3History, cancellationToken),
+            4 => RebuildBc4(lanes, blockCount, provisional, history?.Bc4 ?? BcpackTables.Bc4History, cancellationToken),
+            5 => RebuildBc5(lanes, blockCount, provisional, history?.Bc5 ?? BcpackTables.Bc5History, cancellationToken),
             _ => throw new NotSupportedException($"Xbox BCPack codec {codec} ({GetCodecName(codec)}) is not supported.")
         };
 
@@ -488,12 +514,11 @@ public static class BcpackDecoder
         provisional!.Add($"{codecName} unknown history [{string.Join(", ", unknownEntries)}] ({lostBlocks} blocks)");
     }
 
-    private static byte[] RebuildBc1(ushort[][] lanes, int blockCount, HashSet<string>? provisional, CancellationToken ct)
+    private static byte[] RebuildBc1(ushort[][] lanes, int blockCount, HashSet<string>? provisional, Bc1HistoryEntry[] builtin, CancellationToken ct)
     {
         EnsureZeroLane1(lanes[1], "BC1");
 
         byte[] quad = BcpackTables.Bc1Quadrant;
-        Bc1HistoryEntry[] builtin = BcpackTables.Bc1History;
         byte[] output = new byte[checked(blockCount * 8)];
         Span<Bc1Endpoints> history = stackalloc Bc1Endpoints[256];
         SortedSet<int>? unusedUnknown = null;
@@ -550,13 +575,12 @@ public static class BcpackDecoder
         return output;
     }
 
-    private static byte[] RebuildBc3(ushort[][] lanes, int blockCount, HashSet<string>? provisional, CancellationToken ct)
+    private static byte[] RebuildBc3(ushort[][] lanes, int blockCount, HashSet<string>? provisional, Bc3HistoryEntry[] builtin, CancellationToken ct)
     {
         EnsureZeroLane1(lanes[1], "BC3");
 
         byte[] pairs = BcpackTables.Bc3AlphaPair;
         byte[] quads = BcpackTables.Bc3ColourQuadrant;
-        Bc3HistoryEntry[] builtin = BcpackTables.Bc3History;
         byte[] output = new byte[checked(blockCount * 16)];
         Span<Bc3Endpoints> history = stackalloc Bc3Endpoints[256];
         Span<bool> lostHistory = stackalloc bool[256];
@@ -643,12 +667,11 @@ public static class BcpackDecoder
         return output;
     }
 
-    private static byte[] RebuildBc4(ushort[][] lanes, int blockCount, HashSet<string>? provisional, CancellationToken ct)
+    private static byte[] RebuildBc4(ushort[][] lanes, int blockCount, HashSet<string>? provisional, Bc4HistoryEntry[] builtin, CancellationToken ct)
     {
         EnsureZeroLane1(lanes[1], "BC4");
 
         byte[] pairs = BcpackTables.Bc4Pair;
-        Bc4HistoryEntry[] builtin = BcpackTables.Bc4History;
         byte[] output = new byte[checked(blockCount * 8)];
         Span<Bc4Endpoints> history = stackalloc Bc4Endpoints[256];
         SortedSet<int>? unusedUnknown = null;
@@ -699,12 +722,11 @@ public static class BcpackDecoder
         return output;
     }
 
-    private static byte[] RebuildBc5(ushort[][] lanes, int blockCount, HashSet<string>? provisional, CancellationToken ct)
+    private static byte[] RebuildBc5(ushort[][] lanes, int blockCount, HashSet<string>? provisional, Bc5HistoryEntry[] builtin, CancellationToken ct)
     {
         EnsureZeroLane1(lanes[1], "BC5");
 
         byte[] pairs = BcpackTables.Bc5Pair;
-        Bc5HistoryEntry[] builtin = BcpackTables.Bc5History;
         byte[] output = new byte[checked(blockCount * 16)];
         Span<Bc5Endpoints> history = stackalloc Bc5Endpoints[256];
         Span<bool> lostHistory = stackalloc bool[256];

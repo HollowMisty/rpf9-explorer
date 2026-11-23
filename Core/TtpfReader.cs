@@ -92,6 +92,10 @@ public static class TtpfReader
         => DecodeTexturePreview(path, index, maximumDimension, false, cancellationToken);
 
     public static RageTexturePixels DecodeTexturePreview(string path, int index, int maximumDimension, bool allowProvisional, CancellationToken cancellationToken = default)
+        => DecodeTexturePreview(path, index, maximumDimension, allowProvisional, null, cancellationToken);
+
+    /// <summary>Preview decode with external BCPack initial-history tables (<see cref="BcpackHistory.Load"/>); null uses the built-in tables.</summary>
+    public static RageTexturePixels DecodeTexturePreview(string path, int index, int maximumDimension, bool allowProvisional, BcpackHistory? history, CancellationToken cancellationToken = default)
     {
         if (maximumDimension is < 32 or > 4096) throw new ArgumentOutOfRangeException(nameof(maximumDimension));
         var source = ReadIndex(path, cancellationToken); var native = Select(source, index); var t = native.Info;
@@ -101,7 +105,7 @@ public static class TtpfReader
         if ((long)width * height > 16 * 1024 * 1024) throw new NotSupportedException("No bounded thumbnail mip is available.");
         using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (input.Length != source.Info.SourceLength) throw new IOException("Texture pool changed.");
-        byte[] linear = ReadMip(input, source, native, level, 0, new(), cancellationToken, allowProvisional);
+        byte[] linear = ReadMip(input, source, native, level, 0, new(), cancellationToken, allowProvisional, history);
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, width, height, t.DxgiFormat);
     }
 
@@ -109,6 +113,10 @@ public static class TtpfReader
         => CreateDds(path, index, false, cancellationToken);
 
     public static byte[] CreateDds(string path, int index, bool allowProvisional, CancellationToken cancellationToken = default)
+        => CreateDds(path, index, allowProvisional, null, cancellationToken);
+
+    /// <summary>DDS export with external BCPack initial-history tables (<see cref="BcpackHistory.Load"/>); null uses the built-in tables.</summary>
+    public static byte[] CreateDds(string path, int index, bool allowProvisional, BcpackHistory? history, CancellationToken cancellationToken = default)
     {
         var source = ReadIndexCached(path, cancellationToken); var native = Select(source, index);
         var t = native.Info; var layout = native.Layout!;
@@ -131,13 +139,13 @@ public static class TtpfReader
         {
             for (int mip = t.BaseMipLevel; mip < t.BaseMipLevel + t.Mips; mip++)
                 for (int z = 0; z < Math.Max(1, t.Depth >> mip); z++)
-                    writer.Write(ReadMip(input, source, native, mip, z, cache, cancellationToken, allowProvisional));
+                    writer.Write(ReadMip(input, source, native, mip, z, cache, cancellationToken, allowProvisional, history));
         }
         else
         {
             for (int slice = 0; slice < t.Depth; slice++)
                 for (int mip = t.BaseMipLevel; mip < t.BaseMipLevel + t.Mips; mip++)
-                    writer.Write(ReadMip(input, source, native, mip, slice, cache, cancellationToken, allowProvisional));
+                    writer.Write(ReadMip(input, source, native, mip, slice, cache, cancellationToken, allowProvisional, history));
         }
         if (output.Length != t.DdsSize) throw new InvalidDataException("Generated DDS length disagrees with the inspected texture.");
         return output.ToArray();
@@ -147,6 +155,10 @@ public static class TtpfReader
         => DecodeTexturePixels(path, index, slice, false, cancellationToken);
 
     public static RageTexturePixels DecodeTexturePixels(string path, int index, int slice, bool allowProvisional, CancellationToken cancellationToken = default)
+        => DecodeTexturePixels(path, index, slice, allowProvisional, null, cancellationToken);
+
+    /// <summary>Pixel decode with external BCPack initial-history tables (<see cref="BcpackHistory.Load"/>); null uses the built-in tables.</summary>
+    public static RageTexturePixels DecodeTexturePixels(string path, int index, int slice, bool allowProvisional, BcpackHistory? history, CancellationToken cancellationToken = default)
     {
         var source = ReadIndex(path, cancellationToken); var native = Select(source, index); var t = native.Info;
         int sliceCount = t.Dimension == 3 ? Math.Max(1, t.Depth >> t.PreviewMipLevel) : t.Depth;
@@ -154,7 +166,7 @@ public static class TtpfReader
         if (!t.CanPreview) throw new NotSupportedException(t.Limitation ?? "No supported mip fits the preview output limit.");
         using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (input.Length != source.Info.SourceLength) throw new IOException("The texture pool changed while it was being read.");
-        byte[] linear = ReadMip(input, source, native, t.PreviewMipLevel, slice, new(), cancellationToken, allowProvisional);
+        byte[] linear = ReadMip(input, source, native, t.PreviewMipLevel, slice, new(), cancellationToken, allowProvisional, history);
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, t.PreviewWidth, t.PreviewHeight, t.DxgiFormat);
     }
 
@@ -497,14 +509,14 @@ public static class TtpfReader
         : layout.MipMajorSlices ? checked(baseOffset + m.Offset + (long)slice * m.RegionSize)
         : checked(baseOffset + layout.DataOffset + (long)slice * layout.SliceBytes + m.Offset);
 
-    private static byte[] ReadMip(FileStream input, Index source, Native native, int mip, int slice, Dictionary<int, byte[]> cache, CancellationToken ct, bool allowProvisional = false)
+    private static byte[] ReadMip(FileStream input, Index source, Native native, int mip, int slice, Dictionary<int, byte[]> cache, CancellationToken ct, bool allowProvisional = false, BcpackHistory? history = null)
     {
         var layout = native.Layout!; var m = layout.Mips[mip];
         long start = MipSliceOffset(layout, native.Info.VirtualOffset, m, slice); byte[] tiled = new byte[m.RegionSize];
         foreach (var chunk in ChunksFor(source.Chunks, start, m.RegionSize))
         {
             ct.ThrowIfCancellationRequested(); int key = source.Chunks.IndexOfReference(chunk);
-            if (!cache.TryGetValue(key, out var decoded)) { decoded = DecodeChunk(input, chunk, ct, allowProvisional); cache.Add(key, decoded); }
+            if (!cache.TryGetValue(key, out var decoded)) { decoded = DecodeChunk(input, chunk, ct, allowProvisional, history); cache.Add(key, decoded); }
             long from = Math.Max(start, chunk.Virtual), to = Math.Min(start + m.RegionSize, chunk.Virtual + chunk.Size);
             decoded.AsSpan((int)(from - chunk.Virtual), (int)(to - from)).CopyTo(tiled.AsSpan((int)(from - start)));
         }
@@ -524,14 +536,14 @@ public static class TtpfReader
 
     private static bool IsDecodableCodec(int codec) => codec is 0 or 8 || BcpackDecoder.IsSupportedCodec(codec);
 
-    internal static byte[] DecodeChunk(FileStream input, Chunk chunk, CancellationToken ct, bool allowProvisional = false)
+    internal static byte[] DecodeChunk(FileStream input, Chunk chunk, CancellationToken ct, bool allowProvisional = false, BcpackHistory? history = null)
     {
         if (!IsDecodableCodec(chunk.Codec))
             throw new NotSupportedException($"Xbox BCPack codec {chunk.Codec} ({BcpackDecoder.GetCodecName(chunk.Codec)}) is not supported.");
         byte[] packed = new byte[chunk.Packed]; input.Position = chunk.Source; input.ReadExactly(packed);
         if (chunk.Codec == 0) return packed;
         if (BcpackDecoder.IsSupportedCodec(chunk.Codec))
-            return BcpackDecoder.Decode(packed, chunk.Codec, chunk.Size, allowProvisional, ct);
+            return BcpackDecoder.Decode(packed, chunk.Codec, chunk.Size, allowProvisional, history, ct);
         if (packed.Length < 6) throw new InvalidDataException("Truncated zlib chunk.");
         using var data = new MemoryStream(packed, false); using var zlib = new ZLibStream(data, CompressionMode.Decompress);
         byte[] decoded = new byte[chunk.Size]; int copied = 0; uint a = 1, b = 0;
