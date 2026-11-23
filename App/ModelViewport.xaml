@@ -15,7 +15,7 @@
     <ModelVisual3D x:Name="GeometryRoot"/>
    </Viewport3D>
   </Border>
-  <DockPanel x:Name="ModelFooter" Grid.Row="1" Margin="7,5">
+  <DockPanel Grid.Row="1" Margin="7,5">
    <Button DockPanel.Dock="Right" Content="Reset view" Click="Reset_Click" Padding="9,3"/>
    <TextBlock x:Name="ModelInfoText" Text="Drag: orbit · right-drag: pan · wheel: zoom" Foreground="{DynamicResource AppMutedText}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
   </DockPanel>

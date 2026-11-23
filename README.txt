@@ -21,7 +21,7 @@ be canceled; completed model indexes are reused on later opens.
 Ctrl/Shift-select two or more model rows and choose Preview together to view the
 selected components in their original coordinates. Export OBJ saves the combined
 static geometry. Assembly details lists included and omitted components. Body
-morphs and strand hair remain unsupported. File > Characters resolves
+morphs and strand hair remain unsupported. File > Assembled wardrobe resolves
 authored outfit kits from supported PSIN/0DRP catalogues. The Character animation
 panel plays supported native bone tracks on compatible decoded skin weights.
 Add selected parts collects components across different searches, up to 64 parts.
@@ -185,8 +185,8 @@ Unsupported mesh parts remain static and are counted in the playback status.
 Motion-matcher sets use a different record layout and are not listed. Run Scan
 entire archive to find dictionaries beyond the initial search range.
 
-Characters: load the catalogue and model sources, then choose File > Characters.
-Choose a face and outfit, then click Open outfit. Native drawable IDs,
+Assembled wardrobe: load the catalogue and model sources, then choose File >
+Assembled wardrobe. Pick a native kit and assemble it. Native drawable IDs,
 appearance keys, model names, skeleton joints and bind matrices are checked.
 The kit's ID does not establish character identity or guarantee a complete body.
 Native detail variants with connected humanoid bone ancestry are preferred.
@@ -300,11 +300,3 @@ can use their native far-distance SLOD color as a uniform approximation.
 The preview counts these separately and reports unresolved materials.
 Supported uniform tint selections can also use their native palette SLOD color.
 Composite appearances, ambiguous materials and full surface shading remain unsupported.
-
-CHOOSING CHARACTERS
-
-Click Characters in the toolbar. Search a name, clothing term or outfit ID,
-choose a face in the gallery, and select an outfit. Open outfit loads its
-available parts together. Open static preview is offered for unsupported rigs.
-Show other outfits includes ungrouped and incomplete sets. Native names and
-animation options are under Animation and file details. No names are guessed.

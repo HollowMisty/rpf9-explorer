@@ -8,6 +8,8 @@ namespace RpfPreview.App;
 
 public partial class MainWindow
 {
+    private sealed record WardrobeCatalogChoice(string Label, RageWardrobeCatalog Catalog);
+    private sealed record WardrobeKitChoice(uint Id, string Label, int Matches, int Total, string Search);
     private sealed record WardrobeModelOption(WorkspaceAsset Asset, RageModel Model, int Lod, int Triangles);
     private Window? _wardrobeWindow;
     private readonly Dictionary<(string Source, string Path, long Offset, int? Drawable), ulong> _wardrobeAlbedos = new();
@@ -15,6 +17,131 @@ public partial class MainWindow
 
     private ulong? WardrobeAlbedoKey(ArchiveDocument document, ArchiveEntry entry)
         => _wardrobeAlbedos.TryGetValue((document.SourcePath, entry.Path, entry.Offset, entry.ResourceDrawableOffset), out ulong key) ? key : null;
+
+    private void OpenWardrobe_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        if (_wardrobeWindow is { } existing) { existing.Activate(); return; }
+        var lifetime = new CancellationTokenSource();
+        var cancellation = lifetime.Token;
+        var window = _wardrobeWindow = new Window { Owner = this, Title = "Assembled wardrobe", Width = 820, Height = 580, MinWidth = 600, MinHeight = 460, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        window.SetResourceReference(BackgroundProperty, "AppSurface"); window.SetResourceReference(ForegroundProperty, "AppText");
+        var root = new DockPanel { Margin = new Thickness(18) }; window.Content = root;
+        var heading = new TextBlock { Text = "Assemble an authored outfit", FontSize = 19, Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(heading, Dock.Top); root.Children.Add(heading);
+        var explanation = new TextBlock { Text = "Outfit kits select native model and texture IDs. Indexed matches are checked again when the outfit is assembled; unfinished download regions may still be unavailable.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14) };
+        DockPanel.SetDock(explanation, Dock.Top); root.Children.Add(explanation);
+        var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var assemble = new Button { Content = "Assemble outfit", IsEnabled = false, Margin = new Thickness(0, 0, 8, 0) };
+        var close = new Button { Content = "Close", IsCancel = true }; footer.Children.Add(assemble); footer.Children.Add(close); DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
+        var panel = new StackPanel(); root.Children.Add(new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
+        var catalogues = new ComboBox { DisplayMemberPath = "Label", Margin = new Thickness(0, 5, 0, 8) };
+        var search = new TextBox { Margin = new Thickness(0, 5, 0, 8), ToolTip = "Filter by outfit kit ID or indexed native component names. Separate terms with spaces to require each term." };
+        var kits = new ComboBox { DisplayMemberPath = "Label", Margin = new Thickness(0, 5, 0, 12), IsEnabled = false, MaxDropDownHeight = 260 };
+        var browse = new Button { Content = "Open catalogue file…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
+        var allowStatic = new CheckBox { Content = "Allow static preview if native animation drivers are unsupported", Margin = new Thickness(0, 0, 0, 12) };
+        var rigidFace = new CheckBox { Content = "Attach facial parts to head (preview approximation)", Margin = new Thickness(0, 0, 0, 12), ToolTip = "Keeps eyes and other detached facial parts with the head. Native facial deformation is not reproduced." };
+        var details = new TextBlock { Text = "Looking for wardrobe catalogues in loaded sources…", TextWrapping = TextWrapping.Wrap };
+        panel.Children.Add(new TextBlock { Text = "Catalogue" }); panel.Children.Add(catalogues); panel.Children.Add(browse); panel.Children.Add(new TextBlock { Text = "Find kit ID or indexed component" }); panel.Children.Add(search); panel.Children.Add(new TextBlock { Text = "Outfit kit" }); panel.Children.Add(kits); panel.Children.Add(rigidFace); panel.Children.Add(allowStatic); panel.Children.Add(details);
+        var assets = (_assetIndex?.Assets ?? []).Where(a => a.Kind == "model" && a.Available).ToArray();
+        var lookup = BuildWardrobeLookup(assets); var choices = new List<WardrobeCatalogChoice>(); var kitRows = new List<WardrobeKitChoice>();
+
+        void FilterKits()
+        {
+            uint? previous = (kits.SelectedItem as WardrobeKitChoice)?.Id;
+            string[] terms = search.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var visible = kitRows.Where(row => terms.All(term => row.Search.Contains(term, StringComparison.OrdinalIgnoreCase))).ToArray();
+            kits.ItemsSource = visible; kits.IsEnabled = visible.Length > 0;
+            if (visible.Length > 0) kits.SelectedItem = visible.FirstOrDefault(row => row.Id == previous) ?? visible[0];
+            else { assemble.IsEnabled = false; details.Text = "No outfit kits match these terms. Search uses native indexed component names and exact kit IDs."; }
+        }
+
+        void ShowKits()
+        {
+            kits.ItemsSource = null; assemble.IsEnabled = false;
+            if (catalogues.SelectedItem is not WardrobeCatalogChoice choice) return;
+            var rows = new List<WardrobeKitChoice>();
+            foreach (var kit in choice.Catalog.Kits)
+            {
+                var result = choice.Catalog.Resolve(kit.Id);
+                var keys = result.Selections.Where(s => s.DrawableKey != 0).Select(s => s.DrawableKey).Distinct().ToArray();
+                int matches = keys.Count(lookup.ContainsKey);
+                var names = keys.Where(lookup.ContainsKey).SelectMany(key => lookup[key]).Select(asset =>
+                    RageAssetKeys.TryGetNativeNameFromRecoveredEntry(asset.Entry.Path, out string name) ? name : "").Where(name => name.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
+                var heads = names.Where(name => (name.StartsWith("head_", StringComparison.OrdinalIgnoreCase) || name.Contains("_head_", StringComparison.OrdinalIgnoreCase)) && !name.Contains("_eyes_", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.Ordinal).Take(2).ToArray();
+                string label = $"{kit.Id:X8} · {matches} / {keys.Length} model IDs indexed" + (heads.Length == 1 ? " · indexed " + heads[0] : "") + (result.Warnings.Count > 0 ? $" · {result.Warnings.Count} warnings" : "");
+                rows.Add(new(kit.Id, label, matches, keys.Length, $"{kit.Id:X8} 0x{kit.Id:X8} " + string.Join(' ', names)));
+            }
+            kitRows = rows.OrderByDescending(r => r.Total > 0 && r.Matches == r.Total).ThenByDescending(r => r.Matches).ThenBy(r => r.Id).ToList();
+            FilterKits();
+        }
+        search.TextChanged += (_, _) => FilterKits();
+        catalogues.SelectionChanged += (_, _) => { try { ShowKits(); } catch (InvalidDataException ex) { details.Text = ex.Message; } };
+        kits.SelectionChanged += (_, _) =>
+        {
+            assemble.IsEnabled = kits.SelectedItem is WardrobeKitChoice { Matches: > 0, Total: > 0 };
+            if (kits.SelectedItem is WardrobeKitChoice kit) details.Text = $"Kit {kit.Id:X8}: {kit.Matches} of {kit.Total} drawable IDs have indexed matches. Models and the shared animation skeleton are validated on assembly. Appearance overrides require supported texture data.";
+        };
+        browse.Click += (_, _) =>
+        {
+            var dialog = new OpenFileDialog { Title = "Open a wardrobe catalogue", Filter = "Wardrobe metadata|*.psin;*.pso;*.0drp|All files|*.*", CheckFileExists = true };
+            if (dialog.ShowDialog(window) != true) return;
+            try
+            {
+                var file = new FileInfo(dialog.FileName);
+                if (file.Length is < 96 or > RageWardrobeCatalog.MaxBytes) throw new InvalidDataException("The catalogue file exceeds the supported size.");
+                var parsed = RageWardrobeCatalog.Decode(File.ReadAllBytes(file.FullName)) ?? throw new InvalidDataException("This is not a complete, supported wardrobe catalogue.");
+                choices.Add(new(file.Name, parsed)); catalogues.ItemsSource = choices.ToArray(); catalogues.SelectedIndex = choices.Count - 1;
+            }
+            catch (Exception ex) when (IsTextureReadFailure(ex)) { details.Text = ex.Message; }
+        };
+        assemble.Click += async (_, _) =>
+        {
+            if (catalogues.SelectedItem is not WardrobeCatalogChoice source || kits.SelectedItem is not WardrobeKitChoice kit) return;
+            assemble.IsEnabled = browse.IsEnabled = catalogues.IsEnabled = kits.IsEnabled = search.IsEnabled = allowStatic.IsEnabled = rigidFace.IsEnabled = false;
+            try
+            {
+                await AssembleWardrobeKitAsync(source.Catalog, kit.Id, lookup, allowStatic.IsChecked == true, text => details.Text = text, cancellation, rigidFace.IsChecked == true);
+                if (_modelAssemblyActive) window.Close();
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) when (IsTextureReadFailure(ex)) { details.Text = ex.Message; }
+            finally { if (!cancellation.IsCancellationRequested) { browse.IsEnabled = catalogues.IsEnabled = search.IsEnabled = allowStatic.IsEnabled = rigidFace.IsEnabled = true; kits.IsEnabled = kits.Items.Count > 0; assemble.IsEnabled = kits.SelectedItem != null; } }
+        };
+        window.Closed += (_, _) => { lifetime.Cancel(); if (ReferenceEquals(_wardrobeWindow, window)) _wardrobeWindow = null; };
+        window.Loaded += async (_, _) =>
+        {
+            browse.IsEnabled = catalogues.IsEnabled = false;
+            try
+            {
+                int examined = 0;
+                foreach (var document in _documents.Values.ToArray())
+                    foreach (var entry in document.Entries.Where(e => e.CanExtract && (e.Extension is ".psin" or ".pso" || e.Path.Contains("metadata_PSIN", StringComparison.OrdinalIgnoreCase))).Take(2048))
+                    {
+                        cancellation.ThrowIfCancellationRequested(); examined++;
+                        try
+                        {
+                            var parsed = await Task.Run(() =>
+                            {
+                                byte[] prefix = document.ReadPreview(entry, 65536, cancellation);
+                                if (prefix.AsSpan().IndexOf(new byte[] { 0xf5, 0x4c, 0xcb, 0x8d }) < 0) return null;
+                                return RageWardrobeCatalog.Decode(ArchiveReader.ReadRecoveredPayload(document, entry, cancellation));
+                            }, cancellation);
+                            if (parsed != null) choices.Add(new(Path.GetFileName(document.SourcePath) + " · " + entry.Offset.ToString("X"), parsed));
+                        }
+                        catch (Exception ex) when (IsTextureReadFailure(ex)) { }
+                        if (examined % 32 == 0) details.Text = $"Checked {examined} metadata resources; found {choices.Count} wardrobe catalogues.";
+                    }
+                cancellation.ThrowIfCancellationRequested(); catalogues.ItemsSource = choices.ToArray();
+                if (choices.Count > 0) catalogues.SelectedIndex = 0;
+                else details.Text = "No complete wardrobe catalogue was found in the loaded metadata. Scan the relevant RPF metadata, or open an extracted PSIN/0DRP catalogue file.";
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) when (IsTextureReadFailure(ex)) { details.Text = ex.Message; }
+            finally { if (!cancellation.IsCancellationRequested) browse.IsEnabled = catalogues.IsEnabled = true; }
+        };
+        close.Click += (_, _) => window.Close();
+        window.ShowDialog(); lifetime.Dispose();
+    }
 
     private static Dictionary<ulong, List<WorkspaceAsset>> BuildWardrobeLookup(IEnumerable<WorkspaceAsset> assets)
     {
@@ -126,11 +253,7 @@ public partial class MainWindow
         bool animationReady = shared != null && bestConnected == groups.Length && drivenCoverage?.Complete == true;
         bool rigidPreview = animationReady && rigidFacialAttachment && CharacterPreviewDriverAnchors(shared!, true).Contains(0x54532D85u);
         string driverStatus = drivenCoverage != null ? $"{drivenCoverage.MatchedBones} / {drivenCoverage.RequiredBones} weighted bone IDs supported by " + (rigidPreview ? "native body ancestry and a rigid facial attachment preview" : "native humanoid ancestry") + $"; {Math.Max(0, bestConnected)} / {groups.Length} components supported." : "Humanoid bone ancestry could not be validated.";
-        if (!animationReady && !allowStatic)
-        {
-            var unavailable = new InvalidDataException(driverStatus + " Detached native driver bones require supported rig operators or their own animation tracks. Enable static preview to view the complete outfit without applying a partial animation.");
-            unavailable.Data["WardrobeStaticAvailable"] = true; throw unavailable;
-        }
+        if (!animationReady && !allowStatic) throw new InvalidDataException(driverStatus + " Detached native driver bones require supported rig operators or their own animation tracks. Enable static preview to view the complete outfit without applying a partial animation.");
         if (!animationReady) shared = null;
         selected ??= staticOptions.OfType<WardrobeModelOption>().ToArray();
         var selection = new List<(FileRow Row, ArchiveDocument Document)>(); var meshes = new List<RageMesh>();
