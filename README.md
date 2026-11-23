@@ -101,6 +101,8 @@ Some models still have missing or unsupported material bindings, even when the p
 4. Expand **Character animation** above the model. Choose an animation dictionary and clip, or use **Load animations** to open a recovered clip dictionary or an indexed RPF.
 5. Click **Play**, use **Pause** or **Stop**, toggle **Loop**, or drag the timeline to inspect a pose. Orbit, pan, and zoom work during playback.
 
+![Assembled outfit with native animation playback and the optional rigid facial attachment preview](docs/screenshots/wardrobe-animation.jpg)
+
 Wardrobe selection follows the catalogue's native drawable and appearance identifiers, including inherited preset states. Assembly checks native skeleton hashes, bind matrices, and weighted bone ancestry. It prefers native detail variants that follow the shared humanoid skeleton. Kits requiring unsupported detached drivers are refused for animation. Enable the explicit static preview option to inspect those outfits in their stored pose. Parts with unavailable model data are reported. A kit ID or a shared component name does not establish a character's identity or guarantee that a kit contains a complete body.
 
 **Attach facial parts to head (preview approximation)** is optional. It keeps supported detached eyes and facial parts with the head using their stored bind frames. It does not change the native skeleton or decode the game's facial drivers. The preview and assembly details identify this approximation. It does not enable unsupported garment drivers; those still require a supported native detail variant or static preview.
