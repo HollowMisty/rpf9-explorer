@@ -64,6 +64,13 @@ public static class ArchiveReader
         var media = Rpf9MediaRecovery.Recover(path, length, header);
         var structured = Rpf9StructuredRecovery.Recover(path, length, header, media.Count);
         int nextIndex = media.Count + structured.Count;
+        // A container found in the first 16 MiB and also in the full PSIN index is listed once, from the index.
+        var cachedPsin = RecoveryIndexCache.Load("psin", path, length, header, nextIndex);
+        if (cachedPsin != null)
+        {
+            var indexed = cachedPsin.Entries.Select(e => e.Path).ToHashSet();
+            structured = structured.Where(e => !indexed.Contains(e.Path)).Concat(cachedPsin.Entries).ToArray(); nextIndex += cachedPsin.Entries.Count;
+        }
         var cachedTextures = RecoveryIndexCache.Load("textures", path, length, header, nextIndex);
         var textures = cachedTextures?.Entries ?? Rpf9TextureRecovery.Recover(path, length, header, nextIndex);
         nextIndex += textures.Count;
@@ -99,7 +106,8 @@ public static class ArchiveReader
         metadata["Zlib search boundary"] = "First 16 MiB of the payload area, within validation and output limits; not an exhaustive archive scan";
         metadata["Bink validation"] = "Complete frame-index, file-length, dimensions and alignment checks";
         metadata["XML validation"] = "Adler-32-verified zlib blocks, complete XML parsing, and strictly zero-padded 16-byte alignment for joined 64 KiB blocks";
-        metadata["PSIN validation"] = "Adler-32-verified zlib blocks; seven complete sections and matching CHKS total length. Internal CHKS checksum algorithm remains unverified.";
+        metadata["PSIN search coverage"] = cachedPsin?.Coverage ?? "First 16 MiB of the payload area; zlib blocks only";
+        metadata["PSIN validation"] = "Adler-32-verified zlib blocks; seven complete sections and matching CHKS total length. A full scan also accepts stored 64 KiB blocks and requires the CHKS checksum to match.";
         return new(path, "RPF9", length, recovered, metadata,
             "Partial RPF9 recovery: the original member index is still undecoded. The listed entries are validated embedded streams, " +
             "with generated names based on their offsets. Original filenames/folders and other archive contents remain unavailable. " +

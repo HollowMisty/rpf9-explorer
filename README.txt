@@ -163,6 +163,11 @@ DEFLATE completion/size and chunk-bound checks. The Structure tab describes the
 compiled Xbox container; shader code is never executed. Shader extraction is
 payload recovery and does not reveal the original RPF9 member directory.
 
+PSIN metadata: Scan entire archive finds containers anywhere in an RPF9 file,
+including containers with stored (uncompressed) 64 KiB blocks, and lists one
+only when its CHKS checksum matches. Both section lists (LSCH... and PMAP...)
+are accepted. Field meanings are not decoded.
+
 SUPPORTED ARCHIVES AND EXTRACTION
 
 Open little-endian RPF7 and ordinary ZIP: browse, filter, preview and extract

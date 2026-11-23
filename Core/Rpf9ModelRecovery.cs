@@ -19,7 +19,7 @@ public static class Rpf9ModelRecovery
     private const int MaxResourceBlocks = 4096;
     private const int RawSystemTailBytes = 16;
     private const int RawGraphicsTailBytes = 48;
-    private sealed record Block(long Offset, long Packed, byte[] Data, bool IsRaw = false);
+    internal sealed record Block(long Offset, long Packed, byte[] Data, bool IsRaw = false);
 
 
 
@@ -291,14 +291,14 @@ public static class Rpf9ModelRecovery
         catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException) { return false; }
     }
 
-    private static bool ZeroPadding(FileStream file, long from, long to)
+    internal static bool ZeroPadding(FileStream file, long from, long to)
     {
         if (from < 0 || to < from || to - from > 15 || to > file.Length - 6) return false;
         file.Position = from; Span<byte> bytes = stackalloc byte[15]; int count = (int)(to - from);
         file.ReadExactly(bytes[..count]); return bytes[..count].IndexOfAnyExcept((byte)0) < 0;
     }
 
-    private static bool TryInflate(FileStream file, long offset, int maximum, ref long budget, out Block block,
+    internal static bool TryInflate(FileStream file, long offset, int maximum, ref long budget, out Block block,
         CancellationToken cancellationToken)
     {
         block = new(0, 0, []);
@@ -358,7 +358,7 @@ public static class Rpf9ModelRecovery
         return at == expected.Length;
     }
 
-    private static bool ZlibHeader(ReadOnlySpan<byte> bytes) => bytes.Length >= 2 && (bytes[0] & 15) == 8 &&
+    internal static bool ZlibHeader(ReadOnlySpan<byte> bytes) => bytes.Length >= 2 && (bytes[0] & 15) == 8 &&
         bytes[0] >> 4 <= 7 && ((bytes[0] << 8) + bytes[1]) % 31 == 0 && (bytes[1] & 32) == 0;
 
     private sealed class SmallReads(Stream inner, long origin, long maximum) : Stream

@@ -18,8 +18,9 @@ internal static class PsinPreview
         text.AppendLine("───────   ──────────   ──────────");
         foreach (var section in inspection.Sections)
             text.AppendLine($"{section.Tag,-9} 0x{section.Offset:X8}   {section.Length,10:N0}");
-        text.AppendLine().AppendLine("The enclosing zlib checksum, section boundaries and CHKS total length were validated.");
-        text.AppendLine("The internal CHKS checksum and the meaning of every binary field are not decoded.");
+        text.AppendLine().AppendLine("Section boundaries and the CHKS total length were validated.");
+        text.AppendLine(inspection.InternalChecksumVerified ? "The CHKS checksum matches." : "The CHKS checksum does not match.");
+        text.AppendLine("The meaning of the binary fields is not decoded.");
         text.AppendLine().AppendLine("This is a recovered metadata resource. Its original filename is unknown.");
         text.AppendLine("A PSIN entry in script.rpf is metadata; it is not a decompiled executable script.");
         var strings = ReadStrings(bytes);
