@@ -151,9 +151,26 @@ public static class Rpf9ModelRecovery
             byte[] system = Join(blocks, 0, split, prefixLength);
             RageModelExtent? extent = RageModelDecoder.ProbeRequiredExtents(system);
             if (extent is null) continue;
-            if (!extent.MetadataComplete) { needsMore = true; continue; }
-            if (extent.RequiredSystemBytes > prefixLength) continue;
             int graphicsLength = total - prefixLength;
+            if (!extent.MetadataComplete)
+            {
+                needsMore = true;
+                if (!dictionary && extent.IsFragment && split < blocks.Count && blocks.All(b => !b.IsRaw) &&
+                    RageModelDecoder.ProbeFragmentAtDeclaredSplit(system, split, blocks.Count - split) is
+                        { MetadataComplete: true } declared)
+                {
+                    // Both page counts agree with the loaded streams. Do not try a later split
+                    // that would use an actual graphics page as the missing palette data.
+                    needsMore = false;
+                    if (graphicsLength < declared.RequiredGraphicsBytes || graphicsLength > RageModelDecoder.MaxGraphicsBytes ||
+                        !TryDecodeResource(system, Join(blocks, split, blocks.Count, graphicsLength), false, out models))
+                        return false;
+                    systemLength = prefixLength;
+                    return true;
+                }
+                continue;
+            }
+            if (extent.RequiredSystemBytes > prefixLength) continue;
             if (graphicsLength < extent.RequiredGraphicsBytes) { needsMore = true; continue; }
             if (graphicsLength > RageModelDecoder.MaxGraphicsBytes) continue;
             byte[] graphics = Join(blocks, split, blocks.Count, graphicsLength);
