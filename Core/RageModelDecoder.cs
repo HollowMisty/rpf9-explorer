@@ -129,14 +129,35 @@ public static class RageModelDecoder
 
 
 
-    public static RageModelExtent? ProbeRequiredExtents(ReadOnlySpan<byte> system)
+    public static RageModelExtent? ProbeRequiredExtents(ReadOnlySpan<byte> system) =>
+        ProbeRequiredExtents(system, false);
+
+
+
+
+
+    internal static RageModelExtent? ProbeFragmentAtDeclaredSplit(ReadOnlySpan<byte> system,
+        int systemBlocks, int graphicsBlocks)
+    {
+        if (systemBlocks is < 1 or > 32 || graphicsBlocks is < 1 or > 32 ||
+            !LooksLikeFragment(system) || LooksLikeDrawable(system) || LooksLikeDrawableDictionary(system)) return null;
+        int map = (int)(BinaryPrimitives.ReadUInt64LittleEndian(system[8..]) - 0x50000000);
+        int size = 16 + 8 * (systemBlocks + graphicsBlocks);
+        if (map > system.Length - size) return null;
+        var pages = system.Slice(map, size);
+        if (pages[8] != systemBlocks || pages[9] != graphicsBlocks ||
+            pages[..8].IndexOfAnyExcept((byte)0) >= 0 || pages[10..].IndexOfAnyExcept((byte)0) >= 0) return null;
+        return ProbeRequiredExtents(system, true);
+    }
+
+    private static RageModelExtent? ProbeRequiredExtents(ReadOnlySpan<byte> system, bool allowShortSecondaryPalette)
     {
         if (system.Length > MaxSystemBytes) return null;
         if (system.Length < 176)
             return system.Length >= 16 && BinaryPrimitives.ReadUInt64LittleEndian(system) == 0 &&
                 SystemPointer(BinaryPrimitives.ReadUInt64LittleEndian(system[8..])) ? new(176, 0, false, 0, false) : null;
         if (!LooksLikeResource(system)) return null;
-        var reader = new ExtentReader(system);
+        var reader = new ExtentReader(system, allowShortSecondaryPalette);
         try { return reader.Probe(); }
         catch (NeedSystemBytes ex) { return new(Math.Max(ex.Required, reader.SystemEnd), reader.GraphicsEnd, false, reader.Drawable, reader.Fragment)
             { IsDrawableDictionary = reader.Dictionary }; }
@@ -286,7 +307,7 @@ public static class RageModelDecoder
         public int Required { get; } = required;
     }
 
-    private ref struct ExtentReader(ReadOnlySpan<byte> system)
+    private ref struct ExtentReader(ReadOnlySpan<byte> system, bool allowShortSecondaryPalette)
     {
         private readonly ReadOnlySpan<byte> sys = system;
         public int SystemEnd { get; private set; }
@@ -391,7 +412,17 @@ public static class RageModelDecoder
                     int boneCount = U16(model + 20); Check(boneCount <= 4096);
                     int geometries = S(model + 8, count * 8);
                     S(model + 24, checked((count + (count > 1 ? 1 : 0)) * 32));
-                    if (U64(model + 40) != 0) S(model + 40, boneCount > 0 ? checked(boneCount * 4) : 1);
+                    if (U64(model + 40) != 0)
+                    {
+                        int bytes = boneCount > 0 ? checked(boneCount * sizeof(uint)) : 1;
+                        if (allowShortSecondaryPalette && lodField != 80 && boneCount > 0)
+                        {
+                            int palette = S(model + 40, sizeof(uint));
+                            Check(bytes <= MaxSystemBytes - palette);
+                            if (bytes <= sys.Length - palette) Cover(palette, bytes);
+                        }
+                        else S(model + 40, bytes);
+                    }
                     for (int i = 0; i < count; i++)
                     {
                         Check(++totalMeshes <= MaxMeshes);
