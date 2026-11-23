@@ -35,6 +35,7 @@ public partial class MainWindow : Window
         OpenCommand = new RelayCommand(() => PickArchive(), () => !_busy);
         SaveCommand = new RelayCommand(() => SaveWorkspace_Click(this, new RoutedEventArgs()), () => !_busy && _documents.Count > 0);
         InitializeComponent();
+        DarkModeSwitch.IsChecked = AppTheme.IsDark;
         DataContext = this;
         FilesGrid.ItemsSource = _rows;
         Closing += WaitForPoolCopyOnClosing;
@@ -55,6 +56,12 @@ public partial class MainWindow : Window
                 if (FilesGrid.SelectedItem != null) FilesGrid.ScrollIntoView(FilesGrid.SelectedItem);
             }
         }
+    }
+
+    private void DarkMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (!AppTheme.Set(DarkModeSwitch.IsChecked == true))
+            StatusText.Text = "Theme changed for this session; the appearance preference could not be saved.";
     }
 
     private void Open_Click(object sender, RoutedEventArgs e) => PickArchive();
