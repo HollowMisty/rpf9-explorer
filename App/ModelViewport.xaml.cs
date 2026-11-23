@@ -41,6 +41,7 @@ public partial class ModelViewport : UserControl
         long colorAtlasPixels = 0;
         foreach (var part in meshes)
         {
+            if (part.MaterialKind == VehicleMaterialKind.Hidden) continue;
             if (part.Positions.Count < 3 || part.Positions.Count > 2_000_000 || part.Indices.Count % 3 != 0
                 || part.Indices.Count > 6_000_000 || part.Indices.Any(i => i < 0 || i >= part.Positions.Count))
                 throw new InvalidOperationException("The decoded mesh has invalid vertex/index bounds.");

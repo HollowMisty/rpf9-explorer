@@ -11,7 +11,8 @@ public enum VehicleMaterialKind
     LensAlpha,
     Glass,
     Emissive,
-    Tyre
+    Tyre,
+    Hidden
 }
 
 public sealed record VehicleWheelMount(string BoneName, Vector3 Pivot, bool IsRight, bool IsRear);
@@ -198,7 +199,8 @@ public static class VehicleAssembly
 
     private static readonly HashSet<uint> LensAlphaShaders =
     [
-        0x389206D1u  // standard_vehicle_alpha (headlight/taillight cover lenses)
+        0x389206D1u, // standard_vehicle_alpha (headlight/taillight cover lenses)
+        0x4DC0AC6Au  // standard_vehicle_2lyr_alpha
     ];
 
     private static readonly HashSet<uint> GlassShaders =
@@ -212,8 +214,14 @@ public static class VehicleAssembly
     [
         0x5A693BBEu, // standard_vehicle_emissive_layer
         0x29648098u, // standard_vehicle_emissive_animated_bones
+        0x59C1D684u, // standard_emissive_animated_bones
         0xF119F925u, // standard_emissive_layer
         0xE515A6E7u  // vehicle_lightsemissive
+    ];
+
+    private static readonly HashSet<uint> HiddenShaders =
+    [
+        0xFC34F08Bu  // vehicle_water_stencil (boat hull water-cutout proxy)
     ];
 
     public static IReadOnlyList<VehicleWheelMount> ExtractWheelMounts(ReadOnlySpan<byte> system, int drawableOffset)
@@ -238,6 +246,7 @@ public static class VehicleAssembly
         if (material == null) return VehicleMaterialKind.Default;
         uint h = material.ShaderHash;
         uint p = material.PresetHash;
+        if (HiddenShaders.Contains(h) || HiddenShaders.Contains(p)) return VehicleMaterialKind.Hidden;
         if (TyreShaders.Contains(h) || TyreShaders.Contains(p)) return VehicleMaterialKind.Tyre;
         if (LensAlphaShaders.Contains(h) || LensAlphaShaders.Contains(p)) return VehicleMaterialKind.LensAlpha;
         if (GlassShaders.Contains(h) || GlassShaders.Contains(p)) return VehicleMaterialKind.Glass;
