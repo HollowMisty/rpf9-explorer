@@ -75,11 +75,11 @@ Choose **Models**, search for a model, and select it. The preview loads supporte
 
 Drag with the left mouse button to orbit, drag with the right mouse button to pan, and use the mouse wheel to zoom. **Reset view** resets the camera. **Export OBJ** saves decoded geometry and supported UV coordinates.
 
-Core integrations can call `RageModelDecoder.Decode(system, graphics, drawableOffset, lod)` with `lod` from 0 to 3 to choose a model's level of detail. The returned model records the selection in `Lod`. Existing calls and the desktop preview use LOD 0. An unavailable LOD returns `null`.
+Core integrations can call `RageModelDecoder.Decode(system, graphics, drawableOffset, lod)` with `lod` from 0 to 3 to choose a model's level of detail. The returned model records the selection in `Lod`. Individual model previews use LOD 0. Wardrobe assembly can select another native LOD when needed for complete skeleton support. An unavailable LOD returns `null`.
 
 Character parts inside drawable dictionaries appear as individual model results using their native names. Searching `lucia` can find explicitly named Lucia parts, while shared body parts and player components may have names such as `hand_fr1`, `feet_fr1`, or `player_story000_00`. Free-text searches for `body`, `arms` or `legs` also include the shared skin components. These names do not by themselves identify an authored character or outfit. Different detail variants may share a name; source offsets distinguish them.
 
-Use **Add selected parts** to collect model components across different searches. **Preview queued parts** overlays the collected components in their original coordinates and keeps their supported texture bindings. **Clear parts** empties the queue. You can also Ctrl- or Shift-select two or more visible rows and click **Preview together**. **Export OBJ** saves the combined geometry. **Assembly details** lists every component, omitted selection, source and material mapping. This is a static component preview. It does not select missing body parts, infer character identity, apply body morphs, or reproduce animation. Alternate clothes and detail variants can overlap.
+Use **Add selected parts** to collect model components across different searches. **Preview queued parts** overlays the collected components in their original coordinates and keeps their supported texture bindings. **Clear parts** empties the queue. You can also Ctrl- or Shift-select two or more visible rows and click **Preview together**. **Assembly details** lists every component, omitted selection, source and material mapping. Manual selection does not infer an outfit or fill in missing body parts. Alternate clothes and detail variants can overlap.
 
 ![Character component recovered from a drawable dictionary](docs/screenshots/character-parts.png)
 
@@ -87,11 +87,25 @@ Use **Add selected parts** to collect model components across different searches
 
 Load the relevant texture pools if a model appears gray. The text below the preview reports missing materials, lower-resolution mip levels, and layered-material approximations. Layered materials show the first available supported color layer. Some distant models use their native vertex colors when they have no UV coordinates.
 
-Model recovery also supports fragments with absent optional header pointers, supported 16-bit bone-palette declarations, larger validated geometry lists, and zero-radius drawables. Empty declared bounds use the decoded geometry for the preview. These changes do not add animation or rigged export.
+Model recovery also supports fragments with absent optional header pointers, supported 16-bit bone-palette declarations, larger validated geometry lists, and zero-radius drawables. Empty declared bounds use the decoded geometry for the preview. OBJ export saves geometry and UV coordinates, including the current displayed pose when animation is active; it does not contain a skeleton or animation tracks.
 
 Use **Scan entire archive** to rebuild a saved model index after a decoder update. Model recovery supports RPF9 resources with small uncompressed metadata or geometry tails alongside their zlib blocks.
 
-Some models still have missing or unsupported material bindings, even when the pools are loaded. Unsupported Xbox BCPack codecs (BC6H/BC7) remain unavailable. Full game shaders, palette effects, animation, and skeleton transforms are not reproduced.
+Some models still have missing or unsupported material bindings, even when the pools are loaded. Unsupported Xbox BCPack codecs (BC6H/BC7) remain unavailable. Full game shaders and palette effects are not reproduced.
+
+## Assemble outfits and play character animations
+
+1. Load the archives containing the wardrobe catalogue, character components, shared character skeletons, and clip dictionaries. Load the relevant texture pools for supported color textures.
+2. Use **Scan entire archive** if the required metadata or animations have not been indexed. Open **File > Assembled wardrobe**.
+3. Choose a catalogue, search by kit ID or native component name, then click **Assemble outfit**. You can also open an extracted PSIN/0DRP wardrobe catalogue. The indexed model count is a lookup hint; every selected model is decoded and its native identifier is checked again during assembly.
+4. Expand **Character animation** above the model. Choose an animation dictionary and clip, or use **Load animations** to open a recovered clip dictionary or an indexed RPF.
+5. Click **Play**, use **Pause** or **Stop**, toggle **Loop**, or drag the timeline to inspect a pose. Orbit, pan, and zoom work during playback.
+
+Wardrobe selection follows the catalogue's native drawable and appearance identifiers, including inherited preset states. Assembly checks native skeleton hashes, bind matrices, and weighted bone ancestry. It prefers native detail variants that follow the shared humanoid skeleton. Kits requiring unsupported detached drivers are refused for animation. Enable the explicit static preview option to inspect those outfits in their stored pose. Parts with unavailable model data are reported. A kit ID or a shared component name does not establish a character's identity or guarantee that a kit contains a complete body.
+
+Supported native bone translation, rotation, and scale tracks drive decoded skin weights. A mesh is animated only when every weighted bone follows a tracked native ancestor. Playback reports animated and static mesh parts. Body morphs, cloth simulation, detached facial and garment drivers, strand hair, motion matching, and complete game animation blending are not reproduced. Unsupported tracks are reported separately.
+
+Archives can be read while another app is downloading them. Only complete, validated resource ranges are usable. Indexes created while a writer has the file open remain partial; refresh them after the download finishes. An allocated file size does not mean all its data has arrived.
 
 ## Play movies and audio
 
@@ -103,17 +117,17 @@ Native game audio and Bink movie previews need the corresponding helpers in `Too
 
 **Scan entire archive** also finds PSIN metadata containers anywhere in an RPF9 file, including containers with 64 KiB blocks that are stored without compression. A container is listed only when its CHKS checksum matches. The Structure tab shows its sections; both section lists (`LSCH…` and `PMAP…`) are accepted. The meaning of the binary fields is not decoded, and a PSIN container is not a script.
 
-## Browse animation names
+## Browse animation dictionaries
 
 Choose **Animations** to list recovered clip dictionaries, or search `type:animation`. Selecting one shows its name, its animation count and the names of its clips. Use **Scan entire archive** first: clip dictionaries are usually beyond the part of an archive that is searched on open.
 
-Only names are read. Animation tracks are not decoded, and there is no animation playback. Motion-matcher sets share the container header but use a different record layout and are not listed.
+The list preview shows dictionary metadata and clip names. To play supported tracks, select or assemble a character model, then use its **Character animation** panel. Motion-matcher sets use a different record layout and are not listed as ordinary clip dictionaries.
 
 ## Extract files
 
 Select results and click **Extract selected**. Use Ctrl or Shift to select multiple rows or thumbnails. **Extract results** exports available entries in the current filtered results.
 
-Exports are grouped into separate source folders. Existing files are not overwritten. Texture image entries export as DDS files. Recovered model entries now export their selected geometry as OBJ, including the correct drawable dictionary child. Texture dictionary payloads use the app's `.r9texdata` format. **Export OBJ** also saves the current model or static assembly.
+Exports are grouped into separate source folders. Existing files are not overwritten. Texture image entries export as DDS files. Recovered model entries now export their selected geometry as OBJ, including the correct drawable dictionary child. Texture dictionary payloads use the app's `.r9texdata` format. **Export OBJ** saves the current model or assembly in its displayed pose.
 
 Extraction exports the original assets. Staged replacements are stored separately in the workspace.
 

@@ -35,7 +35,7 @@ public static class Rpf9ShaderRecovery
         int firstIndex = 0, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
         if (scanStart < 0 || scanLength < 0 || firstIndex < 0) throw new ArgumentOutOfRangeException(nameof(scanStart));
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, ScanBlock, FileOptions.SequentialScan);
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete, ScanBlock, FileOptions.SequentialScan);
         if (file.Length != fileSize) throw new IOException("The archive changed while it was being opened.");
         if (scanStart > fileSize) throw new ArgumentOutOfRangeException(nameof(scanStart));
         Span<byte> magic = stackalloc byte[4];

@@ -39,7 +39,7 @@ public sealed record AwcInfo(long Length, IReadOnlyList<AwcStreamInfo> Streams)
 
     public static AwcInfo? Inspect(string source, long offset, long availableLength)
     {
-        using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read,
+        using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete,
             4096, FileOptions.RandomAccess);
         if (offset < 0 || availableLength < 16 || offset > stream.Length || availableLength > stream.Length - offset) return null;
         return AwcRecovery.ReadValidated(stream, offset, availableLength);
@@ -66,7 +66,7 @@ public static class AwcRecovery
         if (fileSize < 16 || header.Length < 4 || !header.AsSpan(0, 4).SequenceEqual("9FPR"u8)) return result;
         var cache = LoadCache(source, firstIndex);
         if (cache is not null) return cache;
-        using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read,
+        using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete,
             PageSize, FileOptions.RandomAccess);
         if (stream.Length != fileSize) throw new IOException("The archive changed while audio was being opened.");
         long budget = HeaderReadBudget;
@@ -113,7 +113,7 @@ public static class AwcRecovery
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read,
+        using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete,
             PageSize, FileOptions.SequentialScan);
         long length = stream.Length;
         if (length < 4) throw new InvalidDataException("The file is too short to contain an RPF9 header.");
@@ -177,7 +177,7 @@ public static class AwcRecovery
         var ranges = entries.Select(e => new CacheRange(e.Offset, e.StoredSize)).OrderBy(e => e.Offset).ToArray();
         if (ranges.Length > MaxContainers || ranges.Select(x => x.Offset).Distinct().Count() != ranges.Length)
             throw new InvalidDataException("The AWC cache contains too many or duplicate ranges.");
-        using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, PageSize, FileOptions.RandomAccess);
+        using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete, PageSize, FileOptions.RandomAccess);
         long length = stream.Length;
         string hash = HeaderHash(stream);
         long ticks = File.GetLastWriteTimeUtc(source).Ticks;
@@ -217,11 +217,11 @@ public static class AwcRecovery
             string path = CachePath(source);
             var cacheFile = new FileInfo(path);
             if (!cacheFile.Exists || cacheFile.Length > 2 * 1024 * 1024) return null;
-            using var input = File.OpenRead(path);
+            using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
             CacheRecord? record = JsonSerializer.Deserialize<CacheRecord>(input);
             if (record is null || record.Schema != 1 || !string.Equals(record.Source, source, StringComparison.OrdinalIgnoreCase) ||
                 record.Ranges is null || record.Ranges.Length > MaxContainers) return null;
-            using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, PageSize, FileOptions.RandomAccess);
+            using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete, PageSize, FileOptions.RandomAccess);
             if (record.SourceLength != stream.Length || record.LastWriteUtcTicks != File.GetLastWriteTimeUtc(source).Ticks ||
                 !string.Equals(record.HeaderSha256, HeaderHash(stream), StringComparison.Ordinal)) return null;
             long previous = -1;
@@ -246,7 +246,7 @@ public static class AwcRecovery
 
     public static void WriteXmaWave(string source, long offset, long availableLength, int streamIndex, string destination)
     {
-        using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, PageSize, FileOptions.RandomAccess);
+        using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete, PageSize, FileOptions.RandomAccess);
         AwcInfo? info = ReadValidated(input, offset, availableLength);
         if (info is null || info.Length != availableLength) throw new InvalidDataException("The AWC span failed validation.");
         AwcStreamInfo audio = info.Streams.SingleOrDefault(s => s.Index == streamIndex)

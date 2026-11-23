@@ -39,7 +39,7 @@ public partial class MainWindow : Window
         DataContext = this;
         FilesGrid.ItemsSource = _rows;
         Closing += WaitForPoolCopyOnClosing;
-        Closed += (_, _) => { _previewCancellation?.Cancel(); CancelThumbnails(); _searchTimer?.Stop(); ClosePlayer(); _workCancellation?.Cancel(); };
+        Closed += (_, _) => { ClearCharacterPlayback(); _previewCancellation?.Cancel(); CancelThumbnails(); _searchTimer?.Stop(); ClosePlayer(); _workCancellation?.Cancel(); };
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -368,6 +368,7 @@ public partial class MainWindow : Window
         CancelButton.Visibility = busy && cancelable ? Visibility.Visible : Visibility.Collapsed;
         CancelButton.IsEnabled = true;
         UpdateExtractButtons();
+        UpdateCharacterPlaybackControls();
         CommandManager.InvalidateRequerySuggested();
     }
     private void UpdateExtractButtons()
@@ -428,6 +429,7 @@ public partial class MainWindow : Window
     {
         public ArchiveEntry Entry { get; } = entry;
         public WorkspaceAsset? Asset { get; init; }
+        public int ModelLod { get; init; }
         private ImageSource? _thumbnail;
         private string _thumbnailStatus = "Loading…";
         public ImageSource? Thumbnail { get => _thumbnail; set { _thumbnail = value; PropertyChanged?.Invoke(this, new(nameof(Thumbnail))); } }

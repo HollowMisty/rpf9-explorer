@@ -21,7 +21,9 @@ be canceled; completed model indexes are reused on later opens.
 Ctrl/Shift-select two or more model rows and choose Preview together to view the
 selected components in their original coordinates. Export OBJ saves the combined
 static geometry. Assembly details lists included and omitted components. Body
-morphs, authored outfit selection, strand hair and animation remain unsupported.
+morphs and strand hair remain unsupported. File > Assembled wardrobe resolves
+authored outfit kits from supported PSIN/0DRP catalogues. The Character animation
+panel plays supported native bone tracks on compatible decoded skin weights.
 Add selected parts collects components across different searches, up to 64 parts.
 Preview queued parts shows the collected components; Clear parts empties the queue.
 Extract selected model entries writes standard OBJ geometry for the selected
@@ -118,14 +120,15 @@ validated geometry and supported UVs. Exact native asset keys resolve supported
 diffusetex color textures in base-game and pack-local data\ttdb pools. Float2 and
 shader-proven SNORM16 UV coordinates are supported; unavailable texture codecs or
 unresolved bindings retain neutral materials. Full game shader effects, bone
-transforms, physics and fragment
-assembly are not applied. Skinned
-resources are explicitly labelled as raw bind-pose geometry.
+physics and full game shaders are not reproduced. Supported character parts can
+use compatible native skeletons and clips through the Character animation panel.
+Unavailable cloth, facial and other animation tracks remain explicitly unsupported.
 
 Core integrations can select a model's level of detail with
 RageModelDecoder.Decode(system, graphics, drawableOffset, lod), where lod is
 0 to 3. The returned model records the selection in Lod. Existing calls and
-the desktop preview use LOD 0. An unavailable LOD returns null.
+individual desktop model previews use LOD 0. Wardrobe assembly can select a
+compatible native detail variant. An unavailable LOD returns null.
 
 Textures: observed AMD-tiled native dictionaries, BC1–BC7 and supported raw/
 floating-point formats. Includes HDR, arrays, cube faces and 3D-volume slices.
@@ -174,10 +177,28 @@ only when its CHKS checksum matches. Both section lists (LSCH... and PMAP...)
 are accepted. Field meanings are not decoded.
 
 Animations: clip dictionaries are listed by the name stored inside them. The
-Details tab shows the animation count and the clip names. Only names are read;
-animation tracks are not decoded and nothing is played. Motion-matcher sets use
-a different record layout and are not listed. Run Scan entire archive to find
-dictionaries beyond the first 16 MiB.
+Details tab shows the animation count and clip names. Select or assemble a
+character, then choose a dictionary and clip in Character animation. Play,
+pause, stop, loop and timeline scrubbing use supported native translation,
+rotation and scale tracks. Export OBJ saves the displayed pose, without a rig.
+Unsupported mesh parts remain static and are counted in the playback status.
+Motion-matcher sets use a different record layout and are not listed. Run Scan
+entire archive to find dictionaries beyond the initial search range.
+
+Assembled wardrobe: load the catalogue and model sources, then choose File >
+Assembled wardrobe. Pick a native kit and assemble it. Native drawable IDs,
+appearance keys, model names, skeleton joints and bind matrices are checked.
+The kit's ID does not establish character identity or guarantee a complete body.
+Native detail variants with connected humanoid bone ancestry are preferred.
+Detached facial and garment drivers are unsupported. Enable the explicit static
+preview option to inspect an outfit that requires them; partial animation is
+disabled rather than applying inconsistent transforms to its clothing or eyes.
+Load texture pools for supported color textures. Full cloth simulation, body
+morphs, facial animation and game animation blending remain unsupported.
+
+Sources may be read while downloading. Only complete validated resource ranges
+are usable. Indexes saved while a writer is active stay partial. Refresh after
+the download finishes; an allocated file size does not prove data is complete.
 
 SUPPORTED ARCHIVES AND EXTRACTION
 

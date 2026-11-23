@@ -103,7 +103,7 @@ public static class TtpfReader
         while (level + 1 < t.BaseMipLevel + t.Mips && (Math.Max(1, t.Width >> level) > maximumDimension || Math.Max(1, t.Height >> level) > maximumDimension)) level++;
         int width = Math.Max(1, t.Width >> level), height = Math.Max(1, t.Height >> level);
         if ((long)width * height > 16 * 1024 * 1024) throw new NotSupportedException("No bounded thumbnail mip is available.");
-        using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
         if (input.Length != source.Info.SourceLength) throw new IOException("Texture pool changed.");
         byte[] linear = ReadMip(input, source, native, level, 0, new(), cancellationToken, allowProvisional, history);
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, width, height, t.DxgiFormat);
@@ -120,7 +120,7 @@ public static class TtpfReader
     {
         var source = ReadIndexCached(path, cancellationToken); var native = Select(source, index);
         var t = native.Info; var layout = native.Layout!;
-        using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
         if (input.Length != source.Info.SourceLength) throw new IOException("The texture pool changed while it was being read.");
         var cache = new Dictionary<int, byte[]>();
         using var output = new MemoryStream(checked((int)t.DdsSize));
@@ -164,7 +164,7 @@ public static class TtpfReader
         int sliceCount = t.Dimension == 3 ? Math.Max(1, t.Depth >> t.PreviewMipLevel) : t.Depth;
         if ((uint)slice >= sliceCount) throw new ArgumentOutOfRangeException(nameof(slice));
         if (!t.CanPreview) throw new NotSupportedException(t.Limitation ?? "No supported mip fits the preview output limit.");
-        using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
         if (input.Length != source.Info.SourceLength) throw new IOException("The texture pool changed while it was being read.");
         byte[] linear = ReadMip(input, source, native, t.PreviewMipLevel, slice, new(), cancellationToken, allowProvisional, history);
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, t.PreviewWidth, t.PreviewHeight, t.DxgiFormat);
@@ -192,7 +192,7 @@ public static class TtpfReader
     internal static Index ReadIndex(string path, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested(); path = Path.GetFullPath(path);
-        using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
         long fileSize = input.Length; if (fileSize < 256) throw new InvalidDataException("Truncated RDS5 header.");
         byte[] header = new byte[24]; input.ReadExactly(header);
         if (!header.AsSpan(0, 4).SequenceEqual("RDS5"u8)) throw new InvalidDataException("Not an RDS5 container.");

@@ -14,11 +14,82 @@ public sealed class RageSkeleton
 
     private RageSkeleton(RageJoint[] joints) => Joints = Array.AsReadOnly(joints);
 
+    public static RageSkeleton? Combine(RageSkeleton master, IEnumerable<RageSkeleton> components)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        ArgumentNullException.ThrowIfNull(components);
+        var source = new[] { master }.Concat(components.Take(MaxJoints + 1)).ToArray();
+        if (source.Length > MaxJoints + 1) return null;
+        var records = new List<(RageJoint Joint, uint? ParentHash)>();
+        var hashes = new Dictionary<uint, int>();
+        foreach (var skeleton in source)
+        {
+            if (skeleton is null || skeleton.Joints.Count is < 1 or > MaxJoints) return null;
+            var ownHashes = new HashSet<uint>();
+            foreach (var joint in skeleton.Joints)
+            {
+                if (!ownHashes.Add(joint.Hash)) return null;
+                uint? parentHash = null;
+                if (joint.Parent is int parent)
+                {
+                    if (parent < 0 || parent >= skeleton.Joints.Count) return null;
+                    parentHash = skeleton.Joints[parent].Hash;
+                }
+                if (hashes.TryGetValue(joint.Hash, out int existing))
+                {
+                    var prior = records[existing];
+                    if (prior.ParentHash != parentHash || !SameBind(prior.Joint.InverseBindMatrix, joint.InverseBindMatrix)) return null;
+                }
+                else
+                {
+                    if (records.Count >= MaxJoints) return null;
+                    hashes.Add(joint.Hash, records.Count);
+                    records.Add((joint, parentHash));
+                }
+            }
+        }
+        var joints = new RageJoint[records.Count];
+        for (int i = 0; i < joints.Length; i++)
+        {
+            var record = records[i];
+            int? parent = record.ParentHash is uint hash ? hashes[hash] : null;
+            joints[i] = record.Joint with { Parent = parent };
+        }
+        return IsAcyclic(joints) ? new(joints) : null;
+    }
+
+    private static bool SameBind(Matrix4x4 first, Matrix4x4 second)
+    {
+        Span<float> a = stackalloc float[] { first.M11, first.M12, first.M13, first.M14, first.M21, first.M22, first.M23, first.M24,
+            first.M31, first.M32, first.M33, first.M34, first.M41, first.M42, first.M43, first.M44 };
+        Span<float> b = stackalloc float[] { second.M11, second.M12, second.M13, second.M14, second.M21, second.M22, second.M23, second.M24,
+            second.M31, second.M32, second.M33, second.M34, second.M41, second.M42, second.M43, second.M44 };
+        for (int i = 0; i < a.Length; i++)
+            if (!float.IsFinite(a[i]) || !float.IsFinite(b[i]) || Math.Abs(a[i] - b[i]) > 0.001f) return false;
+        return true;
+    }
+
     public static RageSkeleton? ReadForDrawable(ReadOnlySpan<byte> system, int drawableOffset)
     {
-        if (!Fits(system, drawableOffset, 0x20) ||
-            !TryPointer(system, drawableOffset + 0x18, 0x70, out int header)) return null;
-        return Read(system, header);
+        if (!Fits(system, drawableOffset, 0x20)) return null;
+        var direct = TryPointer(system, drawableOffset + 0x18, 0x70, out int header) ? Read(system, header) : null;
+        if (!Fits(system, drawableOffset, 0xA8)) return direct;
+        uint count = U32(system, drawableOffset + 0x9C);
+        if (count == 0) return direct;
+        if (count > 64 || !TryPointer(system, drawableOffset + 0xA0, (int)count * 8, out int attachments)) return null;
+        int total = direct?.Joints.Count ?? 0;
+        var linked = new List<RageSkeleton>((int)count);
+        for (int i = 0; i < count; i++)
+        {
+            if (!TryPointer(system, attachments + i * 8, 0x70, out int linkedHeader)) return null;
+            int bones = U16(system, linkedHeader + 0x6C);
+            if (bones < 1 || bones > MaxJoints - total) return null;
+            var skeleton = Read(system, linkedHeader);
+            if (skeleton is null) return null;
+            total += bones;
+            linked.Add(skeleton);
+        }
+        return direct is null ? Combine(linked[0], linked.Skip(1)) : Combine(direct, linked);
     }
 
     public static RageSkeleton? Read(ReadOnlySpan<byte> system, int header)

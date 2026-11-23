@@ -11,6 +11,7 @@ public sealed record RageMesh(string Name, IReadOnlyList<Vector3> Positions, IRe
     public IReadOnlyList<uint>? VertexColors { get; init; }
     public int? ShaderIndex { get; init; }
     public IReadOnlyList<uint>? BonePaletteHashes { get; init; }
+    public RageSkinBinding? Skin { get; init; }
 }
 
 public sealed record RageTextureReference(uint ParameterHash, int TextureIndex, int SystemOffset,
@@ -35,6 +36,7 @@ public sealed record RageModel(string Name, IReadOnlyList<RageMesh> Meshes, Vect
 
 
     public int Lod { get; init; }
+    public RageSkeleton? Skeleton { get; init; }
     public string? PresentationNote { get; init; }
     public IReadOnlyList<RageMaterial>? Materials { get; init; }
     public IReadOnlyList<RageTextureInfo>? EmbeddedTextures { get; init; }
@@ -611,6 +613,7 @@ public static class RageModelDecoder
             return new(name, meshes, previewMin, previewMax)
             {
                 IsFragment = fragment, HasBoneBindings = hasBoneBindings, DrawableOffset = drawable, Lod = lod,
+                Skeleton = RageSkeleton.ReadForDrawable(sys, drawable),
                 IsDictionaryChild = dictionary, DeclaredBoundsMin = min, DeclaredBoundsMax = max,
                 Materials = materials,
                 EmbeddedTextures = embedded.Textures,
@@ -890,7 +893,8 @@ public static class RageModelDecoder
                 Close(range.Max, boundMax, tolerance) && Contains(boundMin, boundMax, actualMin, tolerance) &&
                 Contains(boundMin, boundMax, actualMax, tolerance);
             Require(tightBounds || conservativeBounds);
-            return new(name, positions, indices) { TexCoords = ReadTexCoords(fvf, vertexCount, vertex), VertexColors = ReadVertexColors(fvf, vertexCount, vertex) };
+            return new(name, positions, indices) { TexCoords = ReadTexCoords(fvf, vertexCount, vertex), VertexColors = ReadVertexColors(fvf, vertexCount, vertex),
+                Skin = RageSkinning.ReadNativeBinding(sys, fvf, vertex, vertexCount, boneCount) };
         }
 
         private static Vector3 ReorderPosition(Vector3 position, uint axis) =>

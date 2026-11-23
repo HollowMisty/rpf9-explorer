@@ -29,7 +29,7 @@ internal static class Rpf9StructuredRecovery
         long start = metadataEnd;
         if (start >= fileSize) return entries;
         byte[] sample = new byte[(int)Math.Min(fileSize - start, MaxScanBytes)];
-        using (var file = File.OpenRead(path)) { file.Position = start; file.ReadExactly(sample); }
+        using (var file = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete)) { file.Position = start; file.ReadExactly(sample); }
         long decodedBudget = 0;
         var measured = new List<MeasuredStream>();
         for (int p = 0; p + 6 <= sample.Length && measured.Count < MaxMeasuredStreams && decodedBudget < DecodeBudget; p++)

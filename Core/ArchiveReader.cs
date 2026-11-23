@@ -21,7 +21,7 @@ public static class ArchiveReader
     public static ArchiveDocument Open(string path)
     {
         path = System.IO.Path.GetFullPath(path);
-        using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
         if (stream.Length < 4) throw new InvalidDataException("The file is too short to contain an archive header.");
         var header = new byte[(int)Math.Min(stream.Length, 4096)];
         stream.ReadExactly(header);
@@ -167,7 +167,7 @@ public static class ArchiveReader
 
     private static void CheckZipIndexBounds(string path)
     {
-        using var file = File.OpenRead(path);
+        using var file = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
         if (file.Length < 22) throw new InvalidDataException("Truncated ZIP end record.");
         byte[] tail = new byte[(int)Math.Min(file.Length, 65557)];
         file.Position = file.Length - tail.Length; file.ReadExactly(tail);
@@ -343,6 +343,51 @@ public static class ArchiveReader
     }
 
 
+    public static byte[] ReadRecoveredPayload(ArchiveDocument doc, ArchiveEntry entry, CancellationToken token = default)
+    {
+        ValidateEntry(doc, entry);
+        if ((entry.Compression != "Recovered clip dictionary" && entry.Extension != ".psin") || entry.Segments is not { Count: > 0 } || entry.Size is < 1 or > 64 * 1024 * 1024)
+            throw new InvalidDataException("A complete recovered metadata or animation resource within 64 MiB is required.");
+        using var source = OpenSource(doc, entry, token);
+        byte[] data = new byte[checked((int)entry.Size)]; int written = 0;
+        while (written < data.Length)
+        {
+            token.ThrowIfCancellationRequested();
+            int read = source.Content.Read(data, written, Math.Min(65536, data.Length - written));
+            if (read == 0) throw new InvalidDataException("The recovered resource is truncated or still downloading.");
+            written += read;
+        }
+        if (source.Content.ReadByte() != -1) throw new InvalidDataException("The recovered resource exceeds its validated size.");
+        return data;
+    }
+
+    public static byte[] ReadResourceSystemData(ArchiveDocument doc, ArchiveEntry entry, CancellationToken token = default)
+    {
+        ValidateEntry(doc, entry);
+        if (entry.Compression != "Recovered model" || entry.ResourceSystemBytes is not int size || size is < 1 or > RageModelDecoder.MaxSystemBytes || entry.Segments is not { Count: > 0 })
+            throw new InvalidDataException("A validated native model system section is required.");
+        var segments = new List<ArchiveSegment>(); long remaining = size;
+        foreach (var segment in entry.Segments)
+        {
+            if (remaining == 0) break;
+            if (segment.Size < 1 || segment.Size > remaining) throw new InvalidDataException("The system section does not end at a validated block boundary.");
+            segments.Add(segment); remaining -= segment.Size;
+        }
+        if (remaining != 0) throw new InvalidDataException("The model system section is incomplete.");
+        var systemEntry = entry with { Size = size, StoredSize = segments.Sum(s => s.StoredSize), Segments = segments };
+        using var source = OpenSource(doc, systemEntry, token);
+        byte[] data = new byte[size]; int written = 0;
+        while (written < size)
+        {
+            token.ThrowIfCancellationRequested();
+            int read = source.Content.Read(data, written, Math.Min(65536, size - written));
+            if (read == 0) throw new InvalidDataException("The model system section is truncated or still downloading.");
+            written += read;
+        }
+        if (source.Content.ReadByte() != -1) throw new InvalidDataException("The model system section exceeds its validated size.");
+        return data;
+    }
+
     public static byte[] ReadResourceData(ArchiveDocument doc, ArchiveEntry entry, CancellationToken token = default)
     {
         ValidateEntry(doc, entry);
@@ -480,7 +525,7 @@ public static class ArchiveReader
             }
             catch { zip.Dispose(); throw; }
         }
-        var file = File.Open(doc.SourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var file = File.Open(doc.SourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
         try
         {
             if (file.Length != doc.FileSize) throw new InvalidDataException("Archive size changed since it was opened.");

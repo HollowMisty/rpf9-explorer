@@ -11,6 +11,7 @@ public static class RecoveryIndexCache
         long SourceWriteTicks, string HeaderSha256, string Coverage, IReadOnlyList<ArchiveEntry> Entries)
     {
         public bool IsComplete { get; init; }
+        public bool LiveSourceSnapshot { get; init; }
     }
     private const string Schema = "rpfpreview-payload-index/1";
     private const string ModelSchema = "rpfpreview-payload-index/models/5";
@@ -24,9 +25,15 @@ public static class RecoveryIndexCache
         source = Path.GetFullPath(source);
         var file = new FileInfo(source);
         var header = ReadHeader(source);
+        bool live = HasActiveWriter(source);
+        if (live)
+        {
+            complete = false;
+            coverage = "Source is being written; recovered ranges are partial and should be refreshed after the download finishes. " + coverage;
+        }
         Validate(kind, file.Length, entries, CurrentSchema(kind));
         var index = new CachedIndex(CurrentSchema(kind), kind, source, file.Length, file.LastWriteTimeUtc.Ticks,
-            Convert.ToHexString(SHA256.HashData(header)), coverage, entries) { IsComplete = complete };
+            Convert.ToHexString(SHA256.HashData(header)), coverage, entries) { IsComplete = complete, LiveSourceSnapshot = live };
         var path = CachePath(kind, source);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -52,6 +59,12 @@ public static class RecoveryIndexCache
 
     private static string CurrentSchema(string kind) => kind == "models" ? ModelSchema : Schema;
 
+    private static bool HasActiveWriter(string source)
+    {
+        try { using var file = File.Open(source, FileMode.Open, FileAccess.Read, FileShare.Read); return false; }
+        catch (IOException ex) when ((ex.HResult & 0xFFFF) is 32 or 33) { return true; }
+    }
+
     private static CachedIndex? LoadIndex(string kind, string source, long length, byte[] header, int firstIndex, bool legacyModels)
     {
         try
@@ -63,18 +76,19 @@ public static class RecoveryIndexCache
             using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
             var index = JsonSerializer.Deserialize<CachedIndex>(input);
             if (index is null) return null;
+            bool live = index.LiveSourceSnapshot && HasActiveWriter(source);
             bool supported = legacyModels ? index.Schema is Schema or MixedBlocksSchema or LegacyModelSchema or OlderModelSchema or PreviousModelSchema
                 : index.Schema == CurrentSchema(kind);
             if (!supported || index.Kind != kind
                 || !string.Equals(index.Source, source, StringComparison.OrdinalIgnoreCase)
-                || index.SourceLength != length || index.SourceWriteTicks != File.GetLastWriteTimeUtc(source).Ticks
+                || index.SourceLength != length || !live && index.SourceWriteTicks != File.GetLastWriteTimeUtc(source).Ticks
                 || index.HeaderSha256 != Convert.ToHexString(SHA256.HashData(header.AsSpan(0, Math.Min(64, header.Length))))) return null;
             Validate(kind, length, index.Entries, index.Schema);
             return index with
             {
                 Entries = index.Entries.Select((e, i) => e with { Index = checked(firstIndex + i) }).ToArray(),
                 Coverage = legacyModels ? "Legacy model index; decoder support requires refresh. " + index.Coverage : index.Coverage,
-                IsComplete = !legacyModels && index.IsComplete
+                IsComplete = !live && !legacyModels && index.IsComplete
             };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or ArgumentException or OverflowException)
@@ -89,7 +103,7 @@ public static class RecoveryIndexCache
     }
     private static byte[] ReadHeader(string source)
     {
-        using var file = File.OpenRead(source);
+        using var file = File.Open(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         byte[] data = new byte[(int)Math.Min(64, file.Length)]; file.ReadExactly(data); return data;
     }
     private static void Validate(string kind, long length, IReadOnlyList<ArchiveEntry> entries, string schema)

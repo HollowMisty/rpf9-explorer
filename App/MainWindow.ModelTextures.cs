@@ -55,6 +55,8 @@ public partial class MainWindow
         _modelTextureDetails = ""; _modelLayerPreviewMaterials = _modelMissingTextureMaterials = _modelOpaquePreviewMaterials = 0;
         if (model.Materials == null) { _modelTextureDetails = "No supported native material table was decoded."; return result; }
         var used = model.Meshes.Where(m => m.ShaderIndex != null).Select(m => m.ShaderIndex!.Value).ToHashSet();
+        ulong? wardrobeAlbedo = WardrobeAlbedoKey(document, modelEntry);
+        var wardrobeColorMaterials = (model.Materials ?? []).Where(m => used.Contains(m.ShaderIndex) && ModelTextureBindings.ColorTextures(m).Count > 0).Select(m => m.ShaderIndex).ToArray();
         int materialCount = Math.Max(1, used.Count), maximumDimension = materialCount > 128 ? 256 : materialCount > 32 ? 512 : 1024;
         var resolved = new Dictionary<ulong, ResolvedModelImage>();
         long modelSourceStamp = File.GetLastWriteTimeUtc(document.SourcePath).Ticks;
@@ -62,7 +64,7 @@ public partial class MainWindow
         var opaqueImages = new Dictionary<ImageSource, ImageSource>(ReferenceEqualityComparer.Instance);
         long previewBytes = 0; bool catalogChecked = false;
         string? residentResourceKey = null; byte[]? residentResource = null; int residentSplit = 0;
-        foreach (var material in model.Materials.Where(m => used.Contains(m.ShaderIndex)))
+        foreach (var material in (model.Materials ?? []).Where(m => used.Contains(m.ShaderIndex)))
         {
             token.ThrowIfCancellationRequested();
             if (!model.Meshes.Any(m => m.ShaderIndex == material.ShaderIndex && m.TexCoords != null))
@@ -73,6 +75,11 @@ public partial class MainWindow
                 continue;
             }
             var colorTextures = ModelTextureBindings.ColorTextures(material);
+            if (wardrobeAlbedo is > 0 && wardrobeColorMaterials.Length == 1 && wardrobeColorMaterials[0] == material.ShaderIndex && colorTextures.Count > 0)
+            {
+                var reference = colorTextures[0].Reference with { OpaqueId64 = wardrobeAlbedo.Value, OpaqueId32 = 0 };
+                colorTextures = new[] { new ModelColorTexture(reference, "authored wardrobe albedo", false, false) }.Concat(colorTextures).ToArray();
+            }
             if (colorTextures.Count == 0)
             {
                 notes.Add($"Material {material.ShaderIndex}: no recognized color sampler; hashes {string.Join(", ", material.Textures.Select(t => t.ParameterHash.ToString("X8")))}.");

@@ -16,7 +16,7 @@ public static class PayloadIndexBuilder
         long length = new FileInfo(source).Length;
         if (length < 64) throw new InvalidDataException("The source is too short.");
         byte[] header = new byte[64];
-        using (var file = File.OpenRead(source)) file.ReadExactly(header);
+        using (var file = File.Open(source, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete)) file.ReadExactly(header);
         if (!header.AsSpan(0, 4).SequenceEqual("9FPR"u8)) throw new NotSupportedException("Model discovery supports the observed little-endian RPF9 format.");
         var cached = RecoveryIndexCache.Load("models", source, length, header);
         if (cached?.IsComplete == true)
@@ -80,7 +80,7 @@ public static class PayloadIndexBuilder
         source = Path.GetFullPath(source);
         long length = new FileInfo(source).Length;
         if (length < 64) throw new InvalidDataException("The source is too short.");
-        using (var file = File.OpenRead(source))
+        using (var file = File.Open(source, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete))
         {
             Span<byte> magic = stackalloc byte[4]; file.ReadExactly(magic);
             if (!magic.SequenceEqual("9FPR"u8)) throw new NotSupportedException("Full payload scanning currently supports the observed little-endian RPF9 format.");

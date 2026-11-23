@@ -100,6 +100,12 @@ public partial class ModelViewport : UserControl
         PresentedVertices = PresentedTriangles = PresentedTexturedMeshes = PresentedVertexColoredMeshes = 0;
     }
 
+    internal void FitToView()
+    {
+        UpdateLayout();
+        ResetView();
+    }
+
     private static Material BuildPreviewMaterial(MeshPreviewPart part, Brush brush, bool hasImageTexture)
     {
         switch (part.MaterialKind)

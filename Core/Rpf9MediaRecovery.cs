@@ -39,7 +39,7 @@ internal static class Rpf9MediaRecovery
         long position = AlignPage(metadataEnd);
         if (position > fileSize - 48) return entries;
 
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete,
             PageSize, FileOptions.RandomAccess);
         if (stream.Length != fileSize) throw new IOException("The archive changed while it was being opened.");
         long budget = ReadBudget;
@@ -81,7 +81,7 @@ internal static class Rpf9MediaRecovery
     internal static BinkInfo? Inspect(string path, ArchiveEntry entry)
     {
         if (entry.Offset < 0 || entry.StoredSize < 48) return null;
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete,
             PageSize, FileOptions.RandomAccess);
         if (entry.Offset > stream.Length || entry.StoredSize > stream.Length - entry.Offset) return null;
         long budget = ReadBudget;

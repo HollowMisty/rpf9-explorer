@@ -13,7 +13,7 @@ public static class Rpf9PsinRecovery
     public static IReadOnlyList<long> FindCandidateOffsets(string path, long scanLength,
         IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, ScanBlock, FileOptions.SequentialScan);
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete, ScanBlock, FileOptions.SequentialScan);
         long end = Math.Min(file.Length, scanLength);
         var candidates = new List<long>(); byte[] scan = new byte[ScanBlock]; byte[] head = new byte[4];
         for (long position = 0; position < end; position += ScanBlock)
@@ -39,7 +39,7 @@ public static class Rpf9PsinRecovery
     public static IReadOnlyList<ArchiveEntry> RecoverAtOffsets(string path, long fileSize,
         IReadOnlyList<long> candidateOffsets, int firstIndex = 0, CancellationToken cancellationToken = default)
     {
-        using var file = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var file = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
         if (file.Length != fileSize) throw new IOException("The archive changed while it was being opened.");
         var entries = new List<ArchiveEntry>();
         foreach (long candidate in candidateOffsets)

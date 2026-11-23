@@ -42,6 +42,7 @@ public partial class MainWindow
 
     private void ClearModelAssemblyState()
     {
+        ClearCharacterPlayback();
         _modelAssemblyActive = false;
         _modelAssemblySourcePaths.Clear();
         if (ModelAssemblyBanner != null) { ModelAssemblyBanner.Text = ""; ModelAssemblyBanner.Visibility = Visibility.Collapsed; }
@@ -123,10 +124,10 @@ public partial class MainWindow
         return PreviewModelAssemblySourcesAsync(selection.Select(x => (x.Row, x.Document!)).ToArray());
     }
 
-    private async Task PreviewModelAssemblySourcesAsync((FileRow Row, ArchiveDocument Document)[] selection)
+    private async Task PreviewModelAssemblySourcesAsync((FileRow Row, ArchiveDocument Document)[] selection, bool enableCharacterPlayback = true)
     {
         var models = selection.Where(x => x.Row.Entry.Compression == "Recovered model").ToArray();
-        if (models.Length > 64) { StatusText.Text = "Select at most 64 model components for one bounded static preview."; return; }
+        if (models.Length > 96) { StatusText.Text = "Select at most 96 model components for one bounded preview."; return; }
         var previous = _activePreview;
         _previewCancellation?.Cancel();
         _workCancellation?.Dispose();
@@ -144,19 +145,19 @@ public partial class MainWindow
             ClosePlayer(); ResetAssetPreview();
             ImagePreview.Source = null; ImageTab.IsEnabled = false; ImageTab.Header = "Image";
             TextTab.Header = "Assembly details"; TextPreview.Text = "Preparing the selected model components…"; HexPreview.Text = "";
-            PreviewNameText.Text = "Preparing selected static assembly"; PreviewMetaText.Text = $"{models.Length:N0} selected model components";
+            PreviewNameText.Text = "Preparing selected model assembly"; PreviewMetaText.Text = $"{models.Length:N0} selected model components";
             PreviewTabs.SelectedItem = TextTab;
             _previewCancellation?.Dispose();
             _previewCancellation = CancellationTokenSource.CreateLinkedTokenSource(work.Token);
             WorkProgress.IsIndeterminate = false; WorkProgress.Maximum = models.Length; WorkProgress.Value = 0;
             var token = _previewCancellation.Token;
-            _activePreview = BuildModelAssemblyAsync(selection, token);
+            _activePreview = BuildModelAssemblyAsync(selection, token, enableCharacterPlayback);
             await _activePreview;
         }
         catch (OperationCanceledException)
         {
             _decodedModel = null; ClearModelAssemblyState(); ModelPreview.Clear(); ModelTab.IsEnabled = false;
-            PreviewFootnoteText.Text = "Static model assembly canceled."; StatusText.Text = "Static model assembly canceled.";
+            PreviewFootnoteText.Text = "Model assembly canceled."; StatusText.Text = "Model assembly canceled.";
         }
         catch (Exception ex)
         {
@@ -173,11 +174,12 @@ public partial class MainWindow
         }
     }
 
-    private async Task BuildModelAssemblyAsync((FileRow Row, ArchiveDocument Document)[] selection, CancellationToken token)
+    private async Task BuildModelAssemblyAsync((FileRow Row, ArchiveDocument Document)[] selection, CancellationToken token, bool enableCharacterPlayback)
     {
         const int maxVertices = 2_000_000, maxTriangles = 2_000_000, maxMeshes = 4096;
         const long maxPreviewImageBytes = 128L * 1024 * 1024;
         var meshes = new List<RageMesh>(); var materials = new List<RageMaterial>(); var preview = new List<MeshPreviewPart>();
+        var characterBindings = new List<CharacterPreviewBinding>();
         var components = new List<AssemblyComponent>(); var skipped = new List<string>(); var notes = new List<string>();
         var images = new HashSet<ImageSource>(ReferenceEqualityComparer.Instance);
         var seen = new HashSet<(string Source, string Entry, int? Drawable)>();
@@ -212,7 +214,7 @@ public partial class MainWindow
                         if (split <= 0 || split >= bytes.Length) throw new InvalidDataException("Invalid model resource section boundary.");
                         current = new AssemblyResource(document.SourcePath, entry.Offset, entry.StoredSize, split, bytes);
                     }
-                    var model = RageModelDecoder.Decode(current.System.Span, current.Graphics.Span, entry.ResourceDrawableOffset)
+                    var model = RageModelDecoder.Decode(current.System.Span, current.Graphics.Span, entry.ResourceDrawableOffset, item.Row.ModelLod)
                         ?? throw new InvalidDataException("This selected component does not contain supported validated geometry.");
                     return (Resource: current, Model: model);
                 }, token);
@@ -254,7 +256,9 @@ public partial class MainWindow
                         { texture = null; notes.Add(componentLabel + " · an additional texture exceeded the combined image budget; this mesh uses a neutral preview."); }
                         else { images.Add(texture); previewImageBytes += bytes; }
                     }
-                    preview.Add(new(meshName, mesh.Positions, mesh.Indices) { TexCoords = mesh.TexCoords, VertexColors = mesh.VertexColors, Texture = texture });
+                    var partPreview = new MeshPreviewPart(meshName, mesh.Positions, mesh.Indices) { TexCoords = mesh.TexCoords, VertexColors = mesh.VertexColors, Texture = texture };
+                    preview.Add(partPreview);
+                    characterBindings.Add(new(mesh with { Name = meshName, ShaderIndex = shader }, model.Skeleton, partPreview));
                 }
                 vertices += componentVertices; triangles += componentTriangles;
                 components.Add(new(componentLabel, document, entry, model, map, textureDetails));
@@ -266,7 +270,7 @@ public partial class MainWindow
         }
         token.ThrowIfCancellationRequested();
         string details = AssemblyDetails(selection.Length, components, skipped, notes);
-        TextTab.Header = "Assembly details"; TextPreview.Text = details; HexPreview.Text = "A static assembly has no single source byte range. Select an individual component for its resource bytes.";
+        TextTab.Header = "Assembly details"; TextPreview.Text = details; HexPreview.Text = "An assembly has no single source byte range. Select an individual component for its resource bytes.";
         if (components.Count == 0)
         {
             _decodedModel = null; ClearModelAssemblyState(); ModelPreview.Clear(); ModelTab.IsEnabled = false; PreviewTabs.SelectedItem = TextTab;
@@ -276,26 +280,27 @@ public partial class MainWindow
         }
         _decodedModel = new RageModel("Selected_model_assembly", meshes.ToArray(), min, max) {
             IsFragment = components.Any(c => c.Model.IsFragment), HasBoneBindings = components.Any(c => c.Model.HasBoneBindings),
-            Materials = materials.ToArray(), PresentationNote = "Experimental user-selected static assembly. Source coordinates, UVs, colors and component names are retained. No authored character identity, bone animation or missing parts are inferred. OBJ exports geometry and UVs; native shader effects and materials are not exported." };
+            Materials = materials.ToArray(), PresentationNote = "User-selected model assembly. Source coordinates, UVs, colors and component names are retained. No authored character identity or missing parts are inferred. Compatible native character clips can be previewed separately. OBJ exports the displayed geometry and UVs; native shader effects and animation tracks are not exported." };
         _modelAssemblyActive = true;
         _modelMissingTextureMaterials = missingMaterials; _modelLayerPreviewMaterials = layeredMaterials;
         _modelTextureDetails = string.Join("\n\n", components.Select(c => c.Label + "\n" + c.TextureDetails));
         ModelPreview.ShowMeshes(preview);
+        if (enableCharacterPlayback) BindCharacterPreview(characterBindings);
         ModelTab.IsEnabled = true; PreviewTabs.SelectedItem = ModelTab;
-        PreviewNameText.Text = $"Selected static model assembly · {components.Count:N0} components";
+        PreviewNameText.Text = $"Selected model assembly · {components.Count:N0} components";
         PreviewNameText.ToolTip = "Only the user-selected components are included. Original character membership is unknown.";
         PreviewMetaText.Text = $"{vertices:N0} vertices · {triangles:N0} triangles · {meshes.Count:N0} mesh parts · {skipped.Count:N0} skipped selections";
-        ModelAssemblyBanner.Text = $"Experimental static assembly · {components.Count} selected components shown" + (skipped.Count > 0 ? $" · {skipped.Count} omitted (see Assembly details)" : "")
+        ModelAssemblyBanner.Text = $"Manual assembly · {components.Count} selected components shown" + (skipped.Count > 0 ? $" · {skipped.Count} omitted (see Assembly details)" : "")
             + ". Source coordinates are retained. Parts are not automatically identified or fitted into an authored character; alternate parts may overlap.";
         ModelAssemblyBanner.Visibility = Visibility.Visible;
-        PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · {missingMaterials:N0} unresolved materials · static geometry; rigging and native shader effects are not applied";
+        PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · {missingMaterials:N0} unresolved materials · native shader effects are approximated; animation support is shown above";
         StatusText.Text = $"Previewing {components.Count:N0} selected model components together · {skipped.Count:N0} skipped · export combined geometry with Export OBJ.";
     }
 
     private static string AssemblyDetails(int selected, IReadOnlyList<AssemblyComponent> components,
         IReadOnlyList<string> skipped, IReadOnlyList<string> notes)
     {
-        var text = new StringBuilder("Experimental static model assembly\n\n");
+        var text = new StringBuilder("Selected model assembly\n\n");
         text.AppendLine($"Selected rows: {selected}\nDecoded components: {components.Count}\nSkipped selections: {skipped.Count}\n");
         text.AppendLine("Only user-selected components are shown in their original coordinates. The assembly applies no additional translation, scale, inferred bone pose, authored character identity or automatic missing-part selection. Alternate components and LODs can overlap. A complete body is shown only when the selected, supported components actually contain it.\n");
         foreach (var component in components)
@@ -303,7 +308,7 @@ public partial class MainWindow
             text.AppendLine(component.Label);
             text.AppendLine("Source: " + component.Document.SourcePath);
             text.AppendLine("Entry: " + component.Entry.Path);
-            text.AppendLine($"Resource offset: 0x{component.Entry.Offset:X}; drawable: 0x{component.Model.DrawableOffset:X}");
+            text.AppendLine($"Resource offset: 0x{component.Entry.Offset:X}; drawable: 0x{component.Model.DrawableOffset:X}; LOD: {component.Model.Lod}");
             text.AppendLine($"Meshes: {component.Model.Meshes.Count}; UV meshes: {component.Model.Meshes.Count(m => m.TexCoords != null)}; bone bindings: {component.Model.HasBoneBindings}");
             text.AppendLine("Material map (source → assembly): " + (component.MaterialMap.Count == 0 ? "none" : string.Join(", ", component.MaterialMap.Select(p => p.Key + " → " + p.Value))));
             if (!string.IsNullOrEmpty(component.Model.PresentationNote)) text.AppendLine(component.Model.PresentationNote);

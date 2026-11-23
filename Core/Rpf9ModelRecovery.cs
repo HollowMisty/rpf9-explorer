@@ -34,7 +34,7 @@ public static class Rpf9ModelRecovery
         long? scanLength, IProgress<long>? progress, CancellationToken cancellationToken, bool fragmentsOnly)
     {
         if (scanStart < 0 || scanLength < 0) throw new ArgumentOutOfRangeException(nameof(scanStart));
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, ScanBlock, FileOptions.SequentialScan);
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete, ScanBlock, FileOptions.SequentialScan);
         if (scanStart > file.Length) throw new ArgumentOutOfRangeException(nameof(scanStart));
         long end = scanLength is null ? file.Length : Math.Min(file.Length, checked(scanStart + scanLength.Value));
         long position = scanStart & ~4095L;
@@ -82,7 +82,7 @@ public static class Rpf9ModelRecovery
     {
         ArgumentNullException.ThrowIfNull(candidateOffsets);
         if (firstIndex < 0 || candidateOffsets.Count > MaxCandidateOffsets) throw new ArgumentOutOfRangeException(nameof(firstIndex));
-        using var file = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var file = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
         if (file.Length != fileSize) throw new IOException("The archive changed while it was being opened.");
         var entries = new List<ArchiveEntry>(); var seen = new HashSet<long>();
         Span<byte> prefix = stackalloc byte[16];
