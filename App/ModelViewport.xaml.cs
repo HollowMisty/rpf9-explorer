@@ -1,3 +1,4 @@
+using RpfPreview.Core;
 using System.Numerics;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,6 +14,8 @@ internal sealed record MeshPreviewPart(string Name, IReadOnlyList<Vector3> Posit
     public IReadOnlyList<Vector2>? TexCoords { get; init; }
     public ImageSource? Texture { get; init; }
     public IReadOnlyList<uint>? VertexColors { get; init; }
+    public VehicleMaterialKind MaterialKind { get; init; } = VehicleMaterialKind.Default;
+    public Color? PaintColor { get; init; }
 }
 
 public partial class ModelViewport : UserControl
@@ -32,6 +35,7 @@ public partial class ModelViewport : UserControl
     internal void ShowMeshes(IEnumerable<MeshPreviewPart> meshes, bool resetView = true)
     {
         var group = new Model3DGroup();
+        var transparentModels = new List<GeometryModel3D>();
         var bounds = Rect3D.Empty;
         int vertices = 0, triangles = 0, textured = 0, colored = 0;
         long colorAtlasPixels = 0;
@@ -50,13 +54,16 @@ public partial class ModelViewport : UserControl
             }
             var geometry = new MeshGeometry3D { Positions = points, TriangleIndices = new Int32Collection(part.Indices) };
             Brush brush = new SolidColorBrush(Color.FromRgb(195, 201, 208));
-            if (part.Texture != null && part.TexCoords is { } uv && uv.Count == part.Positions.Count)
+            bool hasImageTexture = false;
+            if (part.MaterialKind is not (VehicleMaterialKind.Tyre or VehicleMaterialKind.LensAlpha or VehicleMaterialKind.Glass)
+                && part.Texture != null && part.TexCoords is { } uv && uv.Count == part.Positions.Count)
             {
                 if (uv.Any(p => !float.IsFinite(p.X) || !float.IsFinite(p.Y))) throw new InvalidOperationException("The mesh contains a non-finite texture coordinate.");
                 geometry.TextureCoordinates = new PointCollection(uv.Select(p => new Point(p.X, p.Y)));
                 brush = new ImageBrush(part.Texture) { TileMode = TileMode.Tile, ViewportUnits = BrushMappingMode.Absolute,
                     Viewport = new Rect(0, 0, 1, 1), Stretch = Stretch.Fill };
                 textured++;
+                hasImageTexture = true;
             }
             else if (part.TexCoords == null && part.VertexColors is { } colors && colors.Count == part.Positions.Count
                 && TryVertexColorPreview(part, colors, 4_000_000 - colorAtlasPixels) is { } preview)
@@ -65,12 +72,17 @@ public partial class ModelViewport : UserControl
                 brush = new ImageBrush(preview.Image) { Stretch = Stretch.Fill }; colored++;
             }
             geometry.Freeze();
-            var material = new DiffuseMaterial(brush);
+            Material material = BuildPreviewMaterial(part, brush, hasImageTexture);
             material.Freeze();
             var model = new GeometryModel3D(geometry, material) { BackMaterial = material };
-            model.Freeze(); group.Children.Add(model);
+            model.Freeze();
+            if (part.MaterialKind is VehicleMaterialKind.LensAlpha or VehicleMaterialKind.Glass)
+                transparentModels.Add(model);
+            else
+                group.Children.Add(model);
             vertices += points.Count; triangles += part.Indices.Count / 3;
         }
+        foreach (var transparent in transparentModels) group.Children.Add(transparent);
         if (bounds.IsEmpty || triangles == 0) throw new InvalidOperationException("No validated triangles were decoded from this resource.");
         group.Freeze(); GeometryRoot.Content = group;
         PresentedVertices = vertices; PresentedTriangles = triangles;
@@ -85,6 +97,49 @@ public partial class ModelViewport : UserControl
     {
         GeometryRoot.Content = null;
         PresentedVertices = PresentedTriangles = PresentedTexturedMeshes = PresentedVertexColoredMeshes = 0;
+    }
+
+    private static Material BuildPreviewMaterial(MeshPreviewPart part, Brush brush, bool hasImageTexture)
+    {
+        switch (part.MaterialKind)
+        {
+            case VehicleMaterialKind.Paint:
+            case VehicleMaterialKind.SecondaryPaint:
+            {
+                Color tint = part.PaintColor ?? (part.MaterialKind == VehicleMaterialKind.SecondaryPaint
+                    ? Color.FromRgb(184, 190, 200) : Color.FromRgb(53, 98, 120));
+                var group = new MaterialGroup();
+                group.Children.Add(new DiffuseMaterial(new SolidColorBrush(tint)));
+                group.Children.Add(new SpecularMaterial(new SolidColorBrush(Color.FromArgb(200, 240, 244, 250)), 85));
+                return group;
+            }
+            case VehicleMaterialKind.Tyre:
+                return new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(48, 50, 54)));
+            case VehicleMaterialKind.LensAlpha:
+            {
+                var group = new MaterialGroup();
+                group.Children.Add(new DiffuseMaterial(new SolidColorBrush(Color.FromArgb(64, 220, 230, 240))));
+                group.Children.Add(new SpecularMaterial(new SolidColorBrush(Color.FromArgb(210, 255, 255, 255)), 110));
+                return group;
+            }
+            case VehicleMaterialKind.Glass:
+            {
+                var group = new MaterialGroup();
+                group.Children.Add(new DiffuseMaterial(new SolidColorBrush(Color.FromArgb(120, 22, 30, 42))));
+                group.Children.Add(new SpecularMaterial(new SolidColorBrush(Color.FromArgb(190, 230, 240, 250)), 95));
+                return group;
+            }
+            case VehicleMaterialKind.Emissive:
+            {
+                var group = new MaterialGroup();
+                group.Children.Add(new DiffuseMaterial(brush));
+                Brush glow = hasImageTexture ? brush : new SolidColorBrush(Color.FromRgb(255, 244, 214));
+                group.Children.Add(new EmissiveMaterial(glow));
+                return group;
+            }
+            default:
+                return new DiffuseMaterial(brush);
+        }
     }
     private sealed record VertexColorPreview(MeshGeometry3D Geometry, BitmapSource Image, long Pixels);
     private static VertexColorPreview? TryVertexColorPreview(MeshPreviewPart part, IReadOnlyList<uint> colors, long pixelBudget)
