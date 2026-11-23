@@ -32,6 +32,9 @@ public sealed record RageModel(string Name, IReadOnlyList<RageMesh> Meshes, Vect
     public Vector3? DeclaredBoundsMax { get; init; }
     public bool HasBoneBindings { get; init; }
     public int DrawableOffset { get; init; }
+    // Which of the drawable's LOD model lists the meshes come from: 0 is the first (the pointer at +0x50),
+    // 1 to 3 the pointers at +0x58, +0x60 and +0x68.
+    public int Lod { get; init; }
     public string? PresentationNote { get; init; }
     public IReadOnlyList<RageMaterial>? Materials { get; init; }
     public IReadOnlyList<RageTextureInfo>? EmbeddedTextures { get; init; }
@@ -55,6 +58,8 @@ public static class RageModelDecoder
 {
     public const int MaxSystemBytes = 32 * 1024 * 1024;
     public const int MaxGraphicsBytes = 224 * 1024 * 1024;
+    // A drawable header holds four LOD pointers, at +0x50, +0x58, +0x60 and +0x68 (ProbeDrawable walks all four).
+    public const int LodCount = 4;
     private const int MaxMeshes = 1024;
     private const int MaxTotalVertices = 2_000_000;
     private const int MaxTotalTriangles = 2_000_000;
@@ -168,8 +173,14 @@ public static class RageModelDecoder
 
     public static RageModel? Decode(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics) => Decode(system, graphics, null);
 
-    public static RageModel? Decode(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics, int? drawableOffset)
+    public static RageModel? Decode(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics, int? drawableOffset) =>
+        Decode(system, graphics, drawableOffset, 0);
+
+    // lod selects the drawable's LOD model list (0 to LodCount - 1). A drawable without that LOD (its pointer is
+    // zero) does not decode, like any other rejected layout.
+    public static RageModel? Decode(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics, int? drawableOffset, int lod)
     {
+        if (lod is < 0 or >= LodCount) return null;
         if (system.Length > MaxSystemBytes || graphics.Length is < 1 or > MaxGraphicsBytes || !LooksLikeResource(system)) return null;
         try
         {
@@ -183,7 +194,7 @@ public static class RageModelDecoder
                     try
                     {
                         var reader = new ModelReader(system, graphics);
-                        return reader.Decode(child.DrawableOffset, true);
+                        return reader.Decode(child.DrawableOffset, true, lod);
                     }
                     catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException or IndexOutOfRangeException)
                     { if (drawableOffset is not null) return null; }
@@ -191,7 +202,7 @@ public static class RageModelDecoder
                 return null;
             }
             var standalone = new ModelReader(system, graphics);
-            return standalone.Decode(drawableOffset);
+            return standalone.Decode(drawableOffset, lod: lod);
         }
         catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException or IndexOutOfRangeException)
         { return null; }
@@ -512,8 +523,9 @@ public static class RageModelDecoder
             return result;
         }
 
-        public RageModel Decode(int? selectedOffset = null, bool dictionaryOwnershipValidated = false)
+        public RageModel Decode(int? selectedOffset = null, bool dictionaryOwnershipValidated = false, int lod = 0)
         {
+            Require(lod is >= 0 and < LodCount);
             int pageInfo = S(8, 16);
             Require(sys[pageInfo + 8] is > 0 and <= 32 && sys[pageInfo + 9] is > 0 and <= 32);
             bool dictionary = LooksLikeDrawableDictionary(sys);
@@ -548,9 +560,11 @@ public static class RageModelDecoder
                 Require(name.EndsWith(".#ft", StringComparison.Ordinal) &&
                     string.Equals(name[..^4], parentName, StringComparison.Ordinal));
             Vector3 min = ReadVector(sys, drawable + 48), max = ReadVector(sys, drawable + 64);
-            int lod = S(drawable + 80, 16), modelCount = U16(sys, lod + 8), capacity = U16(sys, lod + 10);
+            int lodField = drawable + 80 + 8 * lod;
+            Require(BinaryPrimitives.ReadUInt64LittleEndian(sys.Slice(lodField, 8)) != 0);
+            int lodGroup = S(lodField, 16), modelCount = U16(sys, lodGroup + 8), capacity = U16(sys, lodGroup + 10);
             Require(modelCount is > 0 and <= 256 && modelCount == capacity);
-            int list = S(lod, checked(modelCount * 8));
+            int list = S(lodGroup, checked(modelCount * 8));
             var meshes = new List<RageMesh>();
             var materials = ReadMaterials(drawable);
             var embedded = ReadEmbeddedTextures(drawable);
@@ -596,7 +610,7 @@ public static class RageModelDecoder
             }
             return new(name, meshes, previewMin, previewMax)
             {
-                IsFragment = fragment, HasBoneBindings = hasBoneBindings, DrawableOffset = drawable,
+                IsFragment = fragment, HasBoneBindings = hasBoneBindings, DrawableOffset = drawable, Lod = lod,
                 IsDictionaryChild = dictionary, DeclaredBoundsMin = min, DeclaredBoundsMax = max,
                 Materials = materials,
                 EmbeddedTextures = embedded.Textures,
