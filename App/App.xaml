@@ -37,9 +37,15 @@
    </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style TargetType="TextBox"><Setter Property="Padding" Value="5,3"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="Foreground" Value="{DynamicResource AppText}"/><Setter Property="Background" Value="{DynamicResource AppSurface}"/><Setter Property="BorderBrush" Value="{DynamicResource AppBorder}"/><Setter Property="CaretBrush" Value="{DynamicResource AppText}"/></Style>
-  <Style TargetType="TreeViewItem"><Setter Property="Padding" Value="3,4"/></Style>
+  <Style TargetType="TreeViewItem"><Setter Property="Padding" Value="3,4"/><Setter Property="Foreground" Value="{DynamicResource AppText}"/></Style>
   <Style TargetType="DataGridCell"><Setter Property="Padding" Value="6,3"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="DataGridCell"><Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}"><ContentPresenter VerticalAlignment="Center"/></Border></ControlTemplate></Setter.Value></Setter></Style>
-  <Style TargetType="DataGridColumnHeader"><Setter Property="Padding" Value="7,6"/><Setter Property="FontWeight" Value="Normal"/></Style>
-  <Style TargetType="TabItem"><Setter Property="Padding" Value="12,5"/></Style>
+  <Style TargetType="DataGridColumnHeader"><Setter Property="Padding" Value="7,6"/><Setter Property="FontWeight" Value="Normal"/><Setter Property="Foreground" Value="{DynamicResource AppText}"/><Setter Property="Background" Value="{DynamicResource AppRaisedSurface}"/><Setter Property="BorderBrush" Value="{DynamicResource AppBorder}"/></Style>
+  <Style TargetType="TabItem">
+   <Setter Property="Padding" Value="12,5"/><Setter Property="Foreground" Value="{DynamicResource AppText}"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabItem">
+    <Border x:Name="Header" Background="{DynamicResource AppRaisedSurface}" BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="{TemplateBinding Padding}"><ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/></Border>
+    <ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True"><Setter TargetName="Header" Property="Background" Value="{DynamicResource AppSurface}"/><Setter TargetName="Header" Property="BorderBrush" Value="{DynamicResource AppAccent}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{DynamicResource AppDisabledText}"/></Trigger></ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
  </Application.Resources>
 </Application>

@@ -1,4 +1,4 @@
-rpf9-explorer 1.2 - Windows desktop app
+rpf9-explorer 1.3 - Windows desktop app
 
 Open README.md for the illustrated guide and current format limitations.
 
@@ -255,3 +255,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE
+
+APPEARANCE AND VEHICLE PREVIEWS
+
+Use Dark mode at the top right. The preference is remembered.
+Supported vehicle materials use approximate paint, rubber, glass and lights.
+Load the body and wheel resources, select a vehicle fragment with wheel mounts,
+and choose Assemble vehicle. Export OBJ saves assembled geometry.
+Optional vehicles.json configuration supplies paint, scales and part names.
+Generic fallback wheels are preview choices; complete native shading is not
+reproduced. See README.md for details.

@@ -1,4 +1,4 @@
-# rpf9-explorer 1.2
+# rpf9-explorer 1.3
 
 A Windows desktop viewer for RPF archives and game assets. Open multiple archives or a folder, search textures, preview models and media, export files, and save replacement projects.
 
@@ -56,6 +56,16 @@ Supported TTPF layouts include compact 2D mip chains, 2D arrays, streaming cube 
 Streaming textures may have generated names based on native keys. These are not claimed to be their original filenames.
 
 Integrations using `RpfPreview.Core` can load local BC1/BC3/BC4/BC5 history tables with `BcpackHistory.Load(path)` and pass them to the decoding or export overloads. The desktop viewer uses the built-in tables. History files are not bundled; BC6H/BC7 history tables remain unsupported.
+
+## Appearance
+
+Use the **Dark mode** switch at the top right to change the app's appearance. Buttons, file lists, navigation, and preview details follow the selected theme. The setting is remembered when the app reopens.
+
+## Vehicle previews
+
+Supported vehicle shaders use approximate paint, tyre, glass, lens, and light materials. Select a vehicle fragment with recognized skeleton wheel mounts, then choose **Assemble vehicle**. Load the relevant wheel and brake resources into the same workspace first. **Export OBJ** saves the assembled geometry.
+
+An optional `vehicles.json` beside the source archive or app can provide model configuration, paint color, wheel scales, and part names. Without a matching configuration, assembly can use generic available rims and tyres. These are preview approximations; they do not reproduce the game's complete paint system or prove an authored vehicle configuration. Missing textures and unsupported native shaders can remain unresolved.
 
 ## Preview models
 
@@ -139,7 +149,7 @@ The publish script creates `dist/rpf9-explorer.exe` as a self-contained Windows 
 
 Bink requires a separately installed licensed Unreal Bink SDK. Opus requires libopus headers and a library. Those external SDKs are not included. Build the helpers before running `build.ps1` to copy them into the published `Tools` folder. For XMA2 audio, put a compatible `ffmpeg.exe` in `Tools` before publishing.
 
-The Windows 1.2 build uses libopus 1.6.1. To use your own static libopus build, pass `-OpusRoot` (the folder containing `include/opus.h`) and `-OpusLibrary` (the x64 `/MT` static library) to `Tools/Build-OpusPreview.ps1`. Compiler and Windows SDK paths can also be supplied as parameters.
+The Windows 1.3 build uses libopus 1.6.1. To use your own static libopus build, pass `-OpusRoot` (the folder containing `include/opus.h`) and `-OpusLibrary` (the x64 `/MT` static library) to `Tools/Build-OpusPreview.ps1`. Compiler and Windows SDK paths can also be supplied as parameters.
 
 Model and texture browsing do not need the media helpers.
 
