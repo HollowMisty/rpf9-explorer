@@ -33,6 +33,8 @@ public partial class MainWindow
 
     private void ResetAssetPreview()
     {
+        _activeVehicleContext = null;
+        if (AssembleVehicleButton != null) AssembleVehicleButton.Visibility = Visibility.Collapsed;
         ClearModelAssemblyState();
         _audioTrackCancellation?.Cancel();
         _audioTrackCancellation?.Dispose();
@@ -156,10 +158,17 @@ public partial class MainWindow
         token.ThrowIfCancellationRequested();
         var model = decoded.Model;
         _decodedModel = model;
-        ModelPreview.ShowMeshes(model.Meshes.Select(m => new MeshPreviewPart(m.Name, m.Positions, m.Indices) { TexCoords = m.TexCoords, VertexColors = m.VertexColors }));
+        var wheelMounts = VehicleAssembly.ExtractWheelMounts(decoded.System.Span, model.DrawableOffset);
+        UpdateVehicleAssemblyControls(document, entry, model, wheelMounts);
+        var paintColor = ResolveVehiclePaintColor(document, model.Name);
+        var materialKinds = BuildMaterialKindMap(model, isWheelRim: false);
+        ModelPreview.ShowMeshes(model.Meshes.Select(m => new MeshPreviewPart(m.Name, m.Positions, m.Indices) {
+            TexCoords = m.TexCoords, VertexColors = m.VertexColors,
+            MaterialKind = m.ShaderIndex is int si && materialKinds.TryGetValue(si, out var kind) ? kind : VehicleMaterialKind.Default,
+            PaintColor = paintColor }));
         ModelTab.IsEnabled = true; PreviewTabs.SelectedItem = ModelTab;
         TextTab.Header = "Details";
-        TextPreview.Text = $"Native model: {model.Name}\n\n{(model.IsDictionaryChild ? "Selected drawable dictionary component · original coordinates retained\n" : "")}{model.Meshes.Count:N0} mesh parts\n{ModelPreview.PresentedVertices:N0} vertices\n{ModelPreview.PresentedTriangles:N0} triangles\n{model.Meshes.Count(m => m.TexCoords != null):N0} mesh parts with validated UV coordinates\n{model.Materials?.Count ?? 0:N0} native material records\n\nGeometry comes from the source vertex and meshlet index buffers. The preview uses a neutral material. Material texture IDs are retained, but unresolved bindings are not rendered. Export OBJ saves validated geometry and supported UV coordinates.\n\n{model.PresentationNote}";
+        TextPreview.Text = $"Native model: {model.Name}\n\n{(model.IsDictionaryChild ? "Selected drawable dictionary component · original coordinates retained\n" : "")}{model.Meshes.Count:N0} mesh parts\n{ModelPreview.PresentedVertices:N0} vertices\n{ModelPreview.PresentedTriangles:N0} triangles\n{model.Meshes.Count(m => m.TexCoords != null):N0} mesh parts with validated UV coordinates\n{model.Materials?.Count ?? 0:N0} native material records" + (wheelMounts.Count > 0 ? $"\n{wheelMounts.Count:N0} skeleton wheel mounts detected ({string.Join(", ", wheelMounts.Select(w => w.BoneName))})" : "") + $"\n\nGeometry comes from the source vertex and meshlet index buffers. The preview uses a neutral material. Material texture IDs are retained, but unresolved bindings are not rendered. Export OBJ saves validated geometry and supported UV coordinates.\n\n{model.PresentationNote}";
         PreviewMetaText.Text = $"{model.Name} · {ModelPreview.PresentedVertices:N0} vertices · {ModelPreview.PresentedTriangles:N0} triangles";
         PreviewFootnoteText.Text = model.PresentationNote ?? "Geometry preview · neutral material · drag to orbit, right-drag to pan, wheel to zoom";
         try
@@ -169,7 +178,10 @@ public partial class MainWindow
             if (textures.Count > 0)
             {
                 ModelPreview.ShowMeshes(model.Meshes.Select(m => new MeshPreviewPart(m.Name, m.Positions, m.Indices) {
-                    TexCoords = m.TexCoords, VertexColors = m.VertexColors, Texture = m.ShaderIndex is int shader && textures.TryGetValue(shader, out var image) ? image : null }), false);
+                    TexCoords = m.TexCoords, VertexColors = m.VertexColors,
+                    Texture = m.ShaderIndex is int shader && textures.TryGetValue(shader, out var image) ? image : null,
+                    MaterialKind = m.ShaderIndex is int si && materialKinds.TryGetValue(si, out var kind) ? kind : VehicleMaterialKind.Default,
+                    PaintColor = paintColor }), false);
                 PreviewFootnoteText.Text = $"{ModelPreview.PresentedTexturedMeshes:N0} textured mesh parts · {_modelMissingTextureMaterials:N0} unresolved materials" + (_modelLayerPreviewMaterials > 0 ? $" · {_modelLayerPreviewMaterials} base/secondary-layer previews" : "");
                 TextPreview.Text += $"\n\n{ModelPreview.PresentedTexturedMeshes:N0} mesh parts display a color texture matched by exact native asset key. Embedded resources and available lower mips are used where supported. Layered materials use a labelled color-layer preview; native blending and other shader effects are not simulated.";
             }
